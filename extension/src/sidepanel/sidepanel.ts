@@ -8,7 +8,7 @@ import { DEFAULT_MODELS } from '@/types/ai';
 
 const WS_URL = 'ws://127.0.0.1:3026';
 const RECONNECT_DELAY = 3000;
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 1;
 const STORAGE_KEY = 'ai_config';
 
 interface WSRequest {
@@ -181,8 +181,8 @@ function connect(): void {
       scheduleReconnect();
     };
 
-    ws.onerror = (error) => {
-      console.error('[SidePanel] WebSocket error:', error);
+    ws.onerror = () => {
+      // 静默处理，onclose 会处理断开逻辑
     };
   } catch (error) {
     console.error('[SidePanel] Failed to connect:', error);
