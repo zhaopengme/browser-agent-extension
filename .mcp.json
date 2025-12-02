@@ -3,7 +3,7 @@
     "browser-agent": {
       "type": "stdio",
       "command": "node",
-      "args": ["C:/07.dev/browser-agent-extension/mcp-server/dist/index.js"]
+      "args": ["./mcp-server/dist/index.js"]
     }
   }
 }
