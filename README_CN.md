@@ -2,7 +2,7 @@
 
 [English](./README.md)
 
-25KB 的 MCP Server + 60KB 的浏览器插件，让你的 Claude Code / Codex / Gemini CLI / Cursor 等 AI Agent 流畅操作浏览器
+**25KB 的 MCP Server + 60KB 的浏览器插件**，让你的 Claude Code / Codex / Gemini CLI / Cursor 等 AI Agent 流畅操作浏览器
 
 Apache License 2.0 协议开源
 

@@ -2,7 +2,7 @@
 
 [中文文档](./README_CN.md)
 
-A 25KB MCP Server + 60KB browser extension that enables your Claude Code / Codex / Gemini CLI / Cursor and other AI Agents to seamlessly control your browser.
+A **25KB MCP Server + 60KB browser extension** that enables your Claude Code / Codex / Gemini CLI / Cursor and other AI Agents to seamlessly control your browser.
 
 Apache License 2.0 Open Source
 
