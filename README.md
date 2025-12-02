@@ -4,7 +4,7 @@
 
 A 25KB MCP Server + 60KB browser extension that enables your Claude Code / Codex / Gemini CLI / Cursor and other AI Agents to seamlessly control your browser.
 
-MIT Licensed Open Source
+Apache License 2.0 Open Source
 
 Ditch the bulky Playwright. Ditch the bloated MCP Servers stuffed with complex features.
 
@@ -67,4 +67,4 @@ After installation, tell me how to reload the MCP configuration.
 
 ## License
 
-MIT
+Apache License 2.0

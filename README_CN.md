@@ -4,7 +4,7 @@
 
 25KB 的 MCP Server + 60KB 的浏览器插件，让你的 Claude Code / Codex / Gemini CLI / Cursor 等 AI Agent 流畅操作浏览器
 
-MIT 协议开源
+Apache License 2.0 协议开源
 
 丢掉庞大的 Playwright，丢掉被塞进各种复杂功能的臃肿 MCP Server
 
@@ -67,4 +67,4 @@ MIT 协议开源
 
 ## 许可证
 
-MIT
+Apache License 2.0
