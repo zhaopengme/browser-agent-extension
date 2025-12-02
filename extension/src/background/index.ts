@@ -20,19 +20,6 @@ interface MCPResponse {
   error?: string;
 }
 
-// 操作描述映射
-const OPERATION_STATUS: Record<string, string> = {
-  navigate: 'Navigating...',
-  click: 'Clicking element...',
-  type: 'Typing text...',
-  scroll: 'Scrolling page...',
-  screenshot: 'Taking screenshot...',
-  extract: 'Extracting content...',
-  evaluate: 'Executing script...',
-  ai_chat: 'AI thinking...',
-  ai_generate: 'AI generating...',
-};
-
 /**
  * 初始化扩展
  */
@@ -77,23 +64,9 @@ async function handleMCPRequest(request: MCPRequest): Promise<MCPResponse> {
   console.log(`[Background] MCP Request: ${action}`, params);
 
   try {
-    // 显示操作遮罩层
-    if (OPERATION_STATUS[action]) {
-      await showOverlay(OPERATION_STATUS[action]);
-    }
-
     const result = await executeAction(action, params || {});
-
-    // 隐藏遮罩层
-    if (OPERATION_STATUS[action]) {
-      await hideOverlay();
-    }
-
     return { success: true, data: result };
   } catch (error) {
-    // 出错时也要隐藏遮罩层
-    await hideOverlay();
-
     console.error(`[Background] Action error:`, error);
     return {
       success: false,
@@ -106,6 +79,27 @@ async function handleMCPRequest(request: MCPRequest): Promise<MCPResponse> {
  * 执行操作
  */
 async function executeAction(action: string, params: Record<string, unknown>): Promise<unknown> {
+  // 锁定/解锁操作不需要获取 page
+  switch (action) {
+    case 'lock': {
+      const status = (params.status as string) || 'Agent is controlling this page';
+      await showOverlay(status);
+      return { locked: true, status };
+    }
+
+    case 'unlock': {
+      await hideOverlay();
+      return { unlocked: true };
+    }
+
+    case 'update_status': {
+      const status = params.status as string;
+      if (!status) throw new Error('status is required');
+      await updateOverlayStatus(status, params.shimmer as boolean);
+      return { updated: true, status };
+    }
+  }
+
   const page = await browserContext.getActivePage();
 
   switch (action) {
@@ -251,6 +245,181 @@ async function executeAction(action: string, params: Record<string, unknown>): P
       return { reloaded: true };
     }
 
+    // ========== 网络请求捕获 ==========
+
+    case 'enable_network': {
+      await page.enableNetworkCapture();
+      return { enabled: true };
+    }
+
+    case 'disable_network': {
+      await page.disableNetworkCapture();
+      return { disabled: true };
+    }
+
+    case 'get_network_requests': {
+      const requests = page.getNetworkRequests({
+        urlPattern: params.urlPattern as string | undefined,
+        method: params.method as string | undefined,
+        statusCode: params.statusCode as number | undefined,
+        resourceType: params.resourceType as string | undefined,
+        clear: params.clear as boolean | undefined,
+      });
+      return { requests, count: requests.length };
+    }
+
+    case 'clear_network_requests': {
+      page.clearNetworkRequests();
+      return { cleared: true };
+    }
+
+    case 'wait_for_response': {
+      const urlPattern = params.urlPattern as string;
+      if (!urlPattern) throw new Error('urlPattern is required');
+
+      const response = await page.waitForResponse(urlPattern, {
+        method: params.method as string | undefined,
+        timeout: params.timeout as number | undefined,
+      });
+
+      if (response) {
+        return { found: true, request: response };
+      }
+      return { found: false, timedOut: true };
+    }
+
+    // ========== 等待机制 ==========
+
+    case 'wait_for_selector': {
+      const selector = params.selector as string;
+      if (!selector) throw new Error('selector is required');
+
+      const found = await page.waitForSelector(selector, {
+        visible: params.visible as boolean | undefined,
+        hidden: params.hidden as boolean | undefined,
+        timeout: params.timeout as number | undefined,
+      });
+
+      return { found, selector };
+    }
+
+    case 'wait_for_timeout': {
+      const ms = params.ms as number;
+      if (!ms) throw new Error('ms is required');
+
+      await page.waitForTimeout(ms);
+      return { waited: true, ms };
+    }
+
+    case 'wait_for_load_state': {
+      const state = (params.state as string) || 'load';
+      const validStates = ['load', 'domcontentloaded', 'networkidle'];
+      if (!validStates.includes(state)) {
+        throw new Error(`Invalid state: ${state}. Must be one of: ${validStates.join(', ')}`);
+      }
+
+      const success = await page.waitForLoadState(
+        state as 'load' | 'domcontentloaded' | 'networkidle',
+        { timeout: params.timeout as number | undefined }
+      );
+
+      return { success, state };
+    }
+
+    case 'wait_for_function': {
+      const fn = params.function as string;
+      if (!fn) throw new Error('function is required');
+
+      const success = await page.waitForFunction(fn, {
+        timeout: params.timeout as number | undefined,
+        polling: params.polling as number | undefined,
+      });
+
+      return { success };
+    }
+
+    // ========== 文件上传 ==========
+
+    case 'upload_file': {
+      const selector = params.selector as string;
+      const files = params.files as string[];
+      if (!selector) throw new Error('selector is required');
+      if (!files || !Array.isArray(files)) throw new Error('files array is required');
+
+      await page.setInputFiles(selector, files);
+      return { uploaded: true, files: files.length };
+    }
+
+    // ========== 弹窗处理 ==========
+
+    case 'get_dialog': {
+      const dialog = page.getDialog();
+      if (dialog) {
+        return { hasDialog: true, dialog };
+      }
+      return { hasDialog: false };
+    }
+
+    case 'handle_dialog': {
+      const accept = params.accept as boolean ?? true;
+      const promptText = params.promptText as string | undefined;
+
+      const handled = await page.handleDialog(accept, promptText);
+      return { handled, accept };
+    }
+
+    case 'set_auto_dialog': {
+      const handler = params.handler as 'accept' | 'dismiss' | null;
+      page.setAutoDialogHandler(handler);
+      return { set: true, handler };
+    }
+
+    // ========== 控制台日志 ==========
+
+    case 'get_console_logs': {
+      const logs = await page.getConsoleLogs();
+
+      // 可选过滤
+      const types = params.types as string[] | undefined;
+      let filteredLogs = logs;
+      if (types && types.length > 0) {
+        filteredLogs = logs.filter(log => types.includes(log.type));
+      }
+
+      return { logs: filteredLogs, count: filteredLogs.length };
+    }
+
+    case 'enable_console_capture': {
+      await page.enableConsoleCapture();
+      return { enabled: true };
+    }
+
+    // ========== 高级鼠标操作 ==========
+
+    case 'hover': {
+      const selector = params.selector as string;
+      if (!selector) throw new Error('selector is required');
+
+      await page.hover(selector);
+      return { hovered: true, selector };
+    }
+
+    case 'double_click': {
+      const selector = params.selector as string;
+      if (!selector) throw new Error('selector is required');
+
+      await page.doubleClick(selector);
+      return { doubleClicked: true, selector };
+    }
+
+    case 'right_click': {
+      const selector = params.selector as string;
+      if (!selector) throw new Error('selector is required');
+
+      await page.rightClick(selector);
+      return { rightClicked: true, selector };
+    }
+
     // ========== AI 相关操作 ==========
 
     case 'ai_config': {
@@ -363,6 +532,23 @@ async function hideOverlay(): Promise<void> {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab?.id) {
       await chrome.tabs.sendMessage(tab.id, { type: 'HIDE_OVERLAY' });
+    }
+  } catch {
+    // 忽略错误
+  }
+}
+
+/**
+ * 更新遮罩层状态文本
+ */
+async function updateOverlayStatus(status: string, shimmer?: boolean): Promise<void> {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.id) {
+      await chrome.tabs.sendMessage(tab.id, {
+        type: 'UPDATE_OVERLAY_STATUS',
+        payload: { status, shimmer },
+      });
     }
   } catch {
     // 忽略错误

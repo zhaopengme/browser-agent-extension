@@ -8,13 +8,54 @@ import type {
   CaptureScreenshotParams,
   MouseEventParams,
   EvaluateResult,
-  BoxModel
+  BoxModel,
+  NetworkRequest
 } from '@/types/cdp';
+
+// 网络请求存储
+interface StoredNetworkRequest {
+  requestId: string;
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  postData?: string;
+  resourceType: string;
+  timestamp: number;
+  response?: {
+    status: number;
+    statusText: string;
+    headers: Record<string, string>;
+    mimeType: string;
+    timing?: {
+      requestTime: number;
+      receiveHeadersEnd: number;
+    };
+  };
+  responseBody?: string;
+  error?: string;
+}
+
+// 弹窗信息
+interface DialogInfo {
+  type: 'alert' | 'confirm' | 'prompt' | 'beforeunload';
+  message: string;
+  defaultPrompt?: string;
+  timestamp: number;
+}
 
 export class Page {
   private tabId: number;
   private transport: ExtensionTransport;
   private initialized: boolean = false;
+
+  // 网络请求存储
+  private networkRequests: Map<string, StoredNetworkRequest> = new Map();
+  private networkCaptureEnabled: boolean = false;
+  private maxNetworkRequests: number = 500;
+
+  // 弹窗队列
+  private pendingDialogs: DialogInfo[] = [];
+  private dialogHandler: ((accept: boolean, promptText?: string) => void) | null = null;
 
   constructor(tabId: number) {
     this.tabId = tabId;
@@ -36,7 +77,32 @@ export class Page {
       this.transport.send('Runtime.enable'),
     ]);
 
+    // 设置弹窗事件监听
+    this.setupDialogHandler();
+
     this.initialized = true;
+  }
+
+  /**
+   * 设置弹窗处理器
+   */
+  private setupDialogHandler(): void {
+    this.transport.on((method: string, params: unknown) => {
+      if (method === 'Page.javascriptDialogOpening') {
+        const dialogParams = params as {
+          type: 'alert' | 'confirm' | 'prompt' | 'beforeunload';
+          message: string;
+          defaultPrompt?: string;
+        };
+
+        this.pendingDialogs.push({
+          type: dialogParams.type,
+          message: dialogParams.message,
+          defaultPrompt: dialogParams.defaultPrompt,
+          timestamp: Date.now(),
+        });
+      }
+    });
   }
 
   /**
@@ -552,5 +618,576 @@ export class Page {
    */
   getTabId(): number {
     return this.tabId;
+  }
+
+  // ============================================================================
+  // 网络请求捕获
+  // ============================================================================
+
+  /**
+   * 启用网络请求捕获
+   */
+  async enableNetworkCapture(): Promise<void> {
+    if (this.networkCaptureEnabled) return;
+
+    await this.transport.send('Network.enable');
+
+    // 监听网络事件
+    this.transport.on((method: string, params: unknown) => {
+      this.handleNetworkEvent(method, params);
+    });
+
+    this.networkCaptureEnabled = true;
+  }
+
+  /**
+   * 禁用网络请求捕获
+   */
+  async disableNetworkCapture(): Promise<void> {
+    if (!this.networkCaptureEnabled) return;
+
+    await this.transport.send('Network.disable');
+    this.networkCaptureEnabled = false;
+  }
+
+  /**
+   * 处理网络事件
+   */
+  private handleNetworkEvent(method: string, params: unknown): void {
+    switch (method) {
+      case 'Network.requestWillBeSent': {
+        const data = params as {
+          requestId: string;
+          request: {
+            url: string;
+            method: string;
+            headers: Record<string, string>;
+            postData?: string;
+          };
+          timestamp: number;
+          type: string;
+        };
+
+        // 限制存储数量
+        if (this.networkRequests.size >= this.maxNetworkRequests) {
+          const oldestKey = this.networkRequests.keys().next().value;
+          if (oldestKey) {
+            this.networkRequests.delete(oldestKey);
+          }
+        }
+
+        this.networkRequests.set(data.requestId, {
+          requestId: data.requestId,
+          url: data.request.url,
+          method: data.request.method,
+          headers: data.request.headers,
+          postData: data.request.postData,
+          resourceType: data.type,
+          timestamp: data.timestamp * 1000,
+        });
+        break;
+      }
+
+      case 'Network.responseReceived': {
+        const data = params as {
+          requestId: string;
+          response: {
+            status: number;
+            statusText: string;
+            headers: Record<string, string>;
+            mimeType: string;
+            timing?: {
+              requestTime: number;
+              receiveHeadersEnd: number;
+            };
+          };
+        };
+
+        const request = this.networkRequests.get(data.requestId);
+        if (request) {
+          request.response = {
+            status: data.response.status,
+            statusText: data.response.statusText,
+            headers: data.response.headers,
+            mimeType: data.response.mimeType,
+            timing: data.response.timing,
+          };
+        }
+        break;
+      }
+
+      case 'Network.loadingFailed': {
+        const data = params as {
+          requestId: string;
+          errorText: string;
+        };
+
+        const request = this.networkRequests.get(data.requestId);
+        if (request) {
+          request.error = data.errorText;
+        }
+        break;
+      }
+    }
+  }
+
+  /**
+   * 获取捕获的网络请求
+   */
+  getNetworkRequests(options?: {
+    urlPattern?: string;
+    method?: string;
+    statusCode?: number;
+    resourceType?: string;
+    clear?: boolean;
+  }): StoredNetworkRequest[] {
+    let requests = Array.from(this.networkRequests.values());
+
+    // 按URL模式过滤
+    if (options?.urlPattern) {
+      const regex = new RegExp(options.urlPattern);
+      requests = requests.filter(r => regex.test(r.url));
+    }
+
+    // 按方法过滤
+    if (options?.method) {
+      requests = requests.filter(r => r.method.toUpperCase() === options.method!.toUpperCase());
+    }
+
+    // 按状态码过滤
+    if (options?.statusCode !== undefined) {
+      requests = requests.filter(r => r.response?.status === options.statusCode);
+    }
+
+    // 按资源类型过滤
+    if (options?.resourceType) {
+      requests = requests.filter(r => r.resourceType === options.resourceType);
+    }
+
+    // 清空已捕获的请求
+    if (options?.clear) {
+      this.networkRequests.clear();
+    }
+
+    return requests;
+  }
+
+  /**
+   * 清空捕获的网络请求
+   */
+  clearNetworkRequests(): void {
+    this.networkRequests.clear();
+  }
+
+  /**
+   * 等待指定的网络响应
+   */
+  async waitForResponse(
+    urlPattern: string,
+    options?: {
+      method?: string;
+      timeout?: number;
+    }
+  ): Promise<StoredNetworkRequest | null> {
+    const timeout = options?.timeout || 30000;
+    const startTime = Date.now();
+    const regex = new RegExp(urlPattern);
+
+    return new Promise((resolve) => {
+      const checkInterval = setInterval(() => {
+        // 检查是否已有匹配的请求
+        for (const request of this.networkRequests.values()) {
+          if (regex.test(request.url) && request.response) {
+            if (!options?.method || request.method.toUpperCase() === options.method.toUpperCase()) {
+              clearInterval(checkInterval);
+              resolve(request);
+              return;
+            }
+          }
+        }
+
+        // 超时检查
+        if (Date.now() - startTime > timeout) {
+          clearInterval(checkInterval);
+          resolve(null);
+        }
+      }, 100);
+    });
+  }
+
+  // ============================================================================
+  // 等待机制
+  // ============================================================================
+
+  /**
+   * 等待选择器出现
+   */
+  async waitForSelector(
+    selector: string,
+    options?: {
+      visible?: boolean;
+      hidden?: boolean;
+      timeout?: number;
+    }
+  ): Promise<boolean> {
+    const timeout = options?.timeout || 30000;
+    const startTime = Date.now();
+    const visible = options?.visible ?? true;
+    const hidden = options?.hidden ?? false;
+
+    return new Promise((resolve) => {
+      const checkInterval = setInterval(async () => {
+        try {
+          const result = await this.evaluate<{
+            found: boolean;
+            visible: boolean;
+          }>(`
+            (function() {
+              const el = document.querySelector(${JSON.stringify(selector)});
+              if (!el) return { found: false, visible: false };
+
+              const style = window.getComputedStyle(el);
+              const rect = el.getBoundingClientRect();
+              const isVisible = style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && style.opacity !== '0'
+                && rect.width > 0
+                && rect.height > 0;
+
+              return { found: true, visible: isVisible };
+            })()
+          `);
+
+          // 等待隐藏
+          if (hidden) {
+            if (!result.found || !result.visible) {
+              clearInterval(checkInterval);
+              resolve(true);
+              return;
+            }
+          }
+          // 等待出现并可见
+          else if (visible) {
+            if (result.found && result.visible) {
+              clearInterval(checkInterval);
+              resolve(true);
+              return;
+            }
+          }
+          // 只等待存在
+          else {
+            if (result.found) {
+              clearInterval(checkInterval);
+              resolve(true);
+              return;
+            }
+          }
+        } catch {
+          // 忽略错误，继续等待
+        }
+
+        // 超时检查
+        if (Date.now() - startTime > timeout) {
+          clearInterval(checkInterval);
+          resolve(false);
+        }
+      }, 100);
+    });
+  }
+
+  /**
+   * 等待指定时间
+   */
+  async waitForTimeout(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * 等待页面加载状态
+   */
+  async waitForLoadState(
+    state: 'load' | 'domcontentloaded' | 'networkidle',
+    options?: { timeout?: number }
+  ): Promise<boolean> {
+    const timeout = options?.timeout || 30000;
+
+    if (state === 'networkidle') {
+      // 等待网络空闲（500ms内没有新请求）
+      return this.waitForNetworkIdle(timeout);
+    }
+
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.transport.off(handler);
+        resolve(false);
+      }, timeout);
+
+      const eventName = state === 'load' ? 'Page.loadEventFired' : 'Page.domContentEventFired';
+
+      const handler = (method: string) => {
+        if (method === eventName) {
+          clearTimeout(timer);
+          this.transport.off(handler);
+          resolve(true);
+        }
+      };
+
+      this.transport.on(handler);
+
+      // 也检查当前状态
+      this.evaluate<string>('document.readyState').then((readyState) => {
+        if (state === 'load' && readyState === 'complete') {
+          clearTimeout(timer);
+          this.transport.off(handler);
+          resolve(true);
+        } else if (state === 'domcontentloaded' && (readyState === 'interactive' || readyState === 'complete')) {
+          clearTimeout(timer);
+          this.transport.off(handler);
+          resolve(true);
+        }
+      }).catch(() => {});
+    });
+  }
+
+  /**
+   * 等待网络空闲
+   */
+  private async waitForNetworkIdle(timeout: number, idleTime: number = 500): Promise<boolean> {
+    const startTime = Date.now();
+    let lastRequestTime = Date.now();
+
+    return new Promise((resolve) => {
+      const handler = (method: string) => {
+        if (method === 'Network.requestWillBeSent' || method === 'Network.responseReceived') {
+          lastRequestTime = Date.now();
+        }
+      };
+
+      this.transport.on(handler);
+
+      const checkInterval = setInterval(() => {
+        // 检查是否已空闲
+        if (Date.now() - lastRequestTime > idleTime) {
+          clearInterval(checkInterval);
+          this.transport.off(handler);
+          resolve(true);
+          return;
+        }
+
+        // 超时检查
+        if (Date.now() - startTime > timeout) {
+          clearInterval(checkInterval);
+          this.transport.off(handler);
+          resolve(false);
+        }
+      }, 100);
+    });
+  }
+
+  /**
+   * 等待函数返回真值
+   */
+  async waitForFunction(
+    fn: string,
+    options?: { timeout?: number; polling?: number }
+  ): Promise<boolean> {
+    const timeout = options?.timeout || 30000;
+    const polling = options?.polling || 100;
+    const startTime = Date.now();
+
+    return new Promise((resolve) => {
+      const checkInterval = setInterval(async () => {
+        try {
+          const result = await this.evaluate<unknown>(fn);
+          if (result) {
+            clearInterval(checkInterval);
+            resolve(true);
+            return;
+          }
+        } catch {
+          // 忽略错误，继续等待
+        }
+
+        if (Date.now() - startTime > timeout) {
+          clearInterval(checkInterval);
+          resolve(false);
+        }
+      }, polling);
+    });
+  }
+
+  // ============================================================================
+  // 文件上传
+  // ============================================================================
+
+  /**
+   * 设置文件输入
+   */
+  async setInputFiles(selector: string, files: string[]): Promise<void> {
+    // 获取文件输入元素的节点ID
+    const nodeInfo = await this.evaluate<{ backendNodeId: number } | null>(`
+      (function() {
+        const el = document.querySelector(${JSON.stringify(selector)});
+        if (!el || el.tagName !== 'INPUT' || el.type !== 'file') {
+          return null;
+        }
+        return { found: true };
+      })()
+    `);
+
+    if (!nodeInfo) {
+      throw new Error(`File input not found: ${selector}`);
+    }
+
+    // 使用 DOM.querySelector 获取节点ID
+    const doc = await this.transport.send<{ root: { nodeId: number } }>('DOM.getDocument');
+    const queryResult = await this.transport.send<{ nodeId: number }>('DOM.querySelector', {
+      nodeId: doc.root.nodeId,
+      selector,
+    });
+
+    if (!queryResult.nodeId) {
+      throw new Error(`Cannot find node for selector: ${selector}`);
+    }
+
+    // 使用 DOM.setFileInputFiles 设置文件
+    await this.transport.send('DOM.setFileInputFiles', {
+      nodeId: queryResult.nodeId,
+      files,
+    });
+  }
+
+  // ============================================================================
+  // 弹窗处理
+  // ============================================================================
+
+  /**
+   * 获取当前弹窗信息
+   */
+  getDialog(): DialogInfo | null {
+    return this.pendingDialogs[0] || null;
+  }
+
+  /**
+   * 处理弹窗
+   */
+  async handleDialog(accept: boolean, promptText?: string): Promise<boolean> {
+    const dialog = this.pendingDialogs.shift();
+    if (!dialog) {
+      return false;
+    }
+
+    await this.transport.send('Page.handleJavaScriptDialog', {
+      accept,
+      promptText,
+    });
+
+    return true;
+  }
+
+  /**
+   * 自动处理弹窗（设置默认行为）
+   */
+  setAutoDialogHandler(handler: 'accept' | 'dismiss' | null): void {
+    if (handler === null) {
+      // 移除自动处理
+      if (this.autoDialogListener) {
+        this.transport.off(this.autoDialogListener);
+        this.autoDialogListener = null;
+      }
+      return;
+    }
+
+    // 如果之前有监听器，先移除
+    if (this.autoDialogListener) {
+      this.transport.off(this.autoDialogListener);
+    }
+
+    this.autoDialogListener = (method: string) => {
+      if (method === 'Page.javascriptDialogOpening') {
+        this.transport.send('Page.handleJavaScriptDialog', {
+          accept: handler === 'accept',
+        }).catch(() => {});
+      }
+    };
+
+    this.transport.on(this.autoDialogListener);
+  }
+
+  private autoDialogListener: ((method: string, params?: unknown) => void) | null = null;
+
+  /**
+   * 获取所有待处理的弹窗
+   */
+  getPendingDialogs(): DialogInfo[] {
+    return [...this.pendingDialogs];
+  }
+
+  /**
+   * 清空待处理弹窗
+   */
+  clearPendingDialogs(): void {
+    this.pendingDialogs = [];
+  }
+
+  // ============================================================================
+  // Hover 和高级鼠标操作
+  // ============================================================================
+
+  /**
+   * 悬停在元素上
+   */
+  async hover(selector: string): Promise<void> {
+    const elementInfo = await this.evaluate<{ x: number; y: number }>(`
+      (function() {
+        const el = document.querySelector(${JSON.stringify(selector)});
+        if (!el) throw new Error('Element not found: ${selector}');
+        const rect = el.getBoundingClientRect();
+        return {
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2
+        };
+      })()
+    `);
+
+    await this.moveMouse(elementInfo.x, elementInfo.y);
+  }
+
+  /**
+   * 双击元素
+   */
+  async doubleClick(selector: string): Promise<void> {
+    const elementInfo = await this.evaluate<{ x: number; y: number }>(`
+      (function() {
+        const el = document.querySelector(${JSON.stringify(selector)});
+        if (!el) throw new Error('Element not found: ${selector}');
+        const rect = el.getBoundingClientRect();
+        return {
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2
+        };
+      })()
+    `);
+
+    await this.clickAt(elementInfo.x, elementInfo.y, { clickCount: 2 });
+  }
+
+  /**
+   * 右键点击元素
+   */
+  async rightClick(selector: string): Promise<void> {
+    const elementInfo = await this.evaluate<{ x: number; y: number }>(`
+      (function() {
+        const el = document.querySelector(${JSON.stringify(selector)});
+        if (!el) throw new Error('Element not found: ${selector}');
+        const rect = el.getBoundingClientRect();
+        return {
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2
+        };
+      })()
+    `);
+
+    await this.clickAt(elementInfo.x, elementInfo.y, { button: 'right' });
   }
 }

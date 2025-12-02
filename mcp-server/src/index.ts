@@ -63,9 +63,58 @@ async function sendToExtension(action: string, params?: Record<string, unknown>)
  * 定义 MCP 工具
  */
 const TOOLS: Tool[] = [
+  // ========== 页面控制锁定 ==========
+  {
+    name: 'browser_lock',
+    description: `Lock the browser page to prevent user interaction during automation.
+
+IMPORTANT: You MUST call browser_lock BEFORE performing any browser operations (navigate, click, type, etc.) and call browser_unlock AFTER all operations are complete.
+
+Recommended workflow:
+1. Call browser_lock first (with optional status message)
+2. Perform all your browser operations (navigate, click, type, screenshot, etc.)
+3. Call browser_unlock when done
+
+This displays a blue glowing overlay on the page with a status message, blocking all user input to prevent interference with automation.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: {
+          type: 'string',
+          description: 'Status message to display on the overlay (e.g., "Automating form submission...")'
+        },
+      },
+    },
+  },
+  {
+    name: 'browser_unlock',
+    description: `Unlock the browser page to restore user interaction after automation.
+
+IMPORTANT: Always call this after completing your browser operations to allow the user to interact with the page again.
+
+This hides the overlay and re-enables all user input.`,
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
+    name: 'browser_update_status',
+    description: 'Update the status message on the lock overlay without unlocking. Useful for showing progress during multi-step operations.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', description: 'New status message to display' },
+        shimmer: { type: 'boolean', description: 'Enable shimmer animation effect on the text' },
+      },
+      required: ['status'],
+    },
+  },
+
+  // ========== 基础导航和交互 ==========
   {
     name: 'browser_navigate',
-    description: 'Navigate to a URL in the browser',
+    description: 'Navigate to a URL in the browser. Remember to call browser_lock before and browser_unlock after.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -220,6 +269,226 @@ const TOOLS: Tool[] = [
       properties: {},
     },
   },
+
+  // ========== 网络请求捕获 ==========
+  {
+    name: 'browser_enable_network',
+    description: 'Enable network request capturing to monitor XHR, Fetch, and other network requests',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
+    name: 'browser_disable_network',
+    description: 'Disable network request capturing',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
+    name: 'browser_get_network_requests',
+    description: 'Get captured network requests with optional filtering',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        urlPattern: { type: 'string', description: 'Regex pattern to filter requests by URL' },
+        method: { type: 'string', description: 'HTTP method to filter (GET, POST, etc.)' },
+        statusCode: { type: 'number', description: 'Status code to filter' },
+        resourceType: { type: 'string', description: 'Resource type (XHR, Fetch, Document, etc.)' },
+        clear: { type: 'boolean', description: 'Clear captured requests after returning' },
+      },
+    },
+  },
+  {
+    name: 'browser_clear_network_requests',
+    description: 'Clear all captured network requests',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
+    name: 'browser_wait_for_response',
+    description: 'Wait for a network response matching the URL pattern',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        urlPattern: { type: 'string', description: 'Regex pattern to match request URL' },
+        method: { type: 'string', description: 'HTTP method to match' },
+        timeout: { type: 'number', description: 'Timeout in milliseconds (default: 30000)' },
+      },
+      required: ['urlPattern'],
+    },
+  },
+
+  // ========== 等待机制 ==========
+  {
+    name: 'browser_wait_for_selector',
+    description: 'Wait for an element matching the selector to appear in the DOM',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string', description: 'CSS selector to wait for' },
+        visible: { type: 'boolean', description: 'Wait for element to be visible (default: true)' },
+        hidden: { type: 'boolean', description: 'Wait for element to be hidden or removed' },
+        timeout: { type: 'number', description: 'Timeout in milliseconds (default: 30000)' },
+      },
+      required: ['selector'],
+    },
+  },
+  {
+    name: 'browser_wait_for_timeout',
+    description: 'Wait for a specified amount of time',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ms: { type: 'number', description: 'Time to wait in milliseconds' },
+      },
+      required: ['ms'],
+    },
+  },
+  {
+    name: 'browser_wait_for_load_state',
+    description: 'Wait for the page to reach a specific load state',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        state: {
+          type: 'string',
+          enum: ['load', 'domcontentloaded', 'networkidle'],
+          description: 'Load state to wait for'
+        },
+        timeout: { type: 'number', description: 'Timeout in milliseconds (default: 30000)' },
+      },
+    },
+  },
+  {
+    name: 'browser_wait_for_function',
+    description: 'Wait for a JavaScript function to return a truthy value',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        function: { type: 'string', description: 'JavaScript function/expression to evaluate' },
+        timeout: { type: 'number', description: 'Timeout in milliseconds (default: 30000)' },
+        polling: { type: 'number', description: 'Polling interval in milliseconds (default: 100)' },
+      },
+      required: ['function'],
+    },
+  },
+
+  // ========== 文件上传 ==========
+  {
+    name: 'browser_upload_file',
+    description: 'Upload files to a file input element',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string', description: 'CSS selector of the file input element' },
+        files: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Array of absolute file paths to upload'
+        },
+      },
+      required: ['selector', 'files'],
+    },
+  },
+
+  // ========== 弹窗处理 ==========
+  {
+    name: 'browser_get_dialog',
+    description: 'Get information about the current JavaScript dialog (alert, confirm, prompt)',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
+    name: 'browser_handle_dialog',
+    description: 'Handle a JavaScript dialog by accepting or dismissing it',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        accept: { type: 'boolean', description: 'Whether to accept (true) or dismiss (false) the dialog' },
+        promptText: { type: 'string', description: 'Text to enter for prompt dialogs' },
+      },
+    },
+  },
+  {
+    name: 'browser_set_auto_dialog',
+    description: 'Set automatic handling for all JavaScript dialogs',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        handler: {
+          type: 'string',
+          enum: ['accept', 'dismiss', 'null'],
+          description: 'Auto-handler: accept, dismiss, or null to disable'
+        },
+      },
+    },
+  },
+
+  // ========== 控制台日志 ==========
+  {
+    name: 'browser_get_console_logs',
+    description: 'Get console logs from the page (requires console capture to be enabled)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        types: {
+          type: 'array',
+          items: { type: 'string', enum: ['log', 'info', 'warn', 'error', 'debug'] },
+          description: 'Filter by log types'
+        },
+      },
+    },
+  },
+  {
+    name: 'browser_enable_console_capture',
+    description: 'Enable capturing of console logs from the page',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+
+  // ========== 高级鼠标操作 ==========
+  {
+    name: 'browser_hover',
+    description: 'Hover over an element',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string', description: 'CSS selector of the element to hover' },
+      },
+      required: ['selector'],
+    },
+  },
+  {
+    name: 'browser_double_click',
+    description: 'Double-click on an element',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string', description: 'CSS selector of the element to double-click' },
+      },
+      required: ['selector'],
+    },
+  },
+  {
+    name: 'browser_right_click',
+    description: 'Right-click (context menu click) on an element',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string', description: 'CSS selector of the element to right-click' },
+      },
+      required: ['selector'],
+    },
+  },
 ];
 
 /**
@@ -227,6 +496,12 @@ const TOOLS: Tool[] = [
  */
 function getActionFromToolName(toolName: string): string {
   const mapping: Record<string, string> = {
+    // 页面控制锁定
+    browser_lock: 'lock',
+    browser_unlock: 'unlock',
+    browser_update_status: 'update_status',
+
+    // 基础导航和交互
     browser_navigate: 'navigate',
     browser_click: 'click',
     browser_type: 'type',
@@ -242,6 +517,36 @@ function getActionFromToolName(toolName: string): string {
     browser_go_back: 'go_back',
     browser_go_forward: 'go_forward',
     browser_reload: 'reload',
+
+    // 网络请求捕获
+    browser_enable_network: 'enable_network',
+    browser_disable_network: 'disable_network',
+    browser_get_network_requests: 'get_network_requests',
+    browser_clear_network_requests: 'clear_network_requests',
+    browser_wait_for_response: 'wait_for_response',
+
+    // 等待机制
+    browser_wait_for_selector: 'wait_for_selector',
+    browser_wait_for_timeout: 'wait_for_timeout',
+    browser_wait_for_load_state: 'wait_for_load_state',
+    browser_wait_for_function: 'wait_for_function',
+
+    // 文件上传
+    browser_upload_file: 'upload_file',
+
+    // 弹窗处理
+    browser_get_dialog: 'get_dialog',
+    browser_handle_dialog: 'handle_dialog',
+    browser_set_auto_dialog: 'set_auto_dialog',
+
+    // 控制台日志
+    browser_get_console_logs: 'get_console_logs',
+    browser_enable_console_capture: 'enable_console_capture',
+
+    // 高级鼠标操作
+    browser_hover: 'hover',
+    browser_double_click: 'double_click',
+    browser_right_click: 'right_click',
   };
   return mapping[toolName] || toolName;
 }
