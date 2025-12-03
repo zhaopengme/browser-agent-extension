@@ -16,9 +16,10 @@
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
       color: #fff;
-      min-height: 100vh;
+      height: 100vh;
       display: flex;
       flex-direction: row;
+      overflow: hidden;
     }
 
     /* 主内容区 */
@@ -96,6 +97,14 @@
       color: #94a3b8;
     }
 
+    .status-text.connected {
+      color: #22c55e;
+    }
+
+    .status-text.disconnected {
+      color: #ef4444;
+    }
+
     .btn-reconnect {
       padding: 4px 10px;
       background: rgba(255, 255, 255, 0.1);
@@ -120,10 +129,10 @@
 
     .btn-disconnect {
       padding: 4px 10px;
-      background: rgba(239, 68, 68, 0.2);
-      border: 1px solid rgba(239, 68, 68, 0.3);
+      background: rgba(255, 255, 255, 0.1);
+      border: none;
       border-radius: 4px;
-      color: #ef4444;
+      color: #94a3b8;
       font-size: 11px;
       cursor: pointer;
       transition: all 0.2s;
@@ -131,8 +140,8 @@
     }
 
     .btn-disconnect:hover {
-      background: rgba(239, 68, 68, 0.3);
-      border-color: rgba(239, 68, 68, 0.5);
+      background: rgba(255, 255, 255, 0.15);
+      color: #fff;
     }
 
     /* 标签图标 */
@@ -215,6 +224,24 @@
       overflow-y: auto;
       font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
       font-size: 12px;
+    }
+
+    .log-container::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .log-container::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 2px;
+    }
+
+    .log-container::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 2px;
+    }
+
+    .log-container::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.25);
     }
 
     .log-entry {
@@ -371,7 +398,7 @@
         <span class="status-label">MCP Server</span>
         <div class="indicator-dot" id="statusDot"></div>
         <span class="status-text" id="statusText">Disconnected</span>
-        <button class="btn-reconnect" id="btnReconnect">Reconnect</button>
+        <button class="btn-reconnect" id="btnReconnect">Connect</button>
         <button class="btn-disconnect" id="btnDisconnect" style="display: none;">Disconnect</button>
       </div>
     </div>
@@ -427,7 +454,7 @@
 
         <div class="settings-section">
           <div class="settings-title">About</div>
-          <a href="https://github.com/anthropics/claude-code" target="_blank"
+          <a href="https://github.com/agents-cc/browser-agent-extension" target="_blank"
              style="display: inline-flex; align-items: center; gap: 8px; color: #94a3b8; font-size: 13px; text-decoration: none; transition: color 0.2s;"
              onmouseover="this.style.color='#00d4ff'" onmouseout="this.style.color='#94a3b8'">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">

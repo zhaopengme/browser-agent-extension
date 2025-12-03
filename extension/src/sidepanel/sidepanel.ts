@@ -118,10 +118,12 @@ function addLog(action: string, detail: string, status: 'pending' | 'success' | 
  */
 function updateStatus(status: 'connected' | 'connecting' | 'disconnected'): void {
   statusDot.classList.remove('connected', 'connecting');
+  statusText.classList.remove('connected', 'disconnected');
 
   switch (status) {
     case 'connected':
       statusDot.classList.add('connected');
+      statusText.classList.add('connected');
       statusText.textContent = 'Connected';
       btnReconnect.style.display = 'none';
       btnDisconnect.style.display = 'inline-block';
@@ -135,6 +137,7 @@ function updateStatus(status: 'connected' | 'connecting' | 'disconnected'): void
       setSettingsEnabled(false);
       break;
     case 'disconnected':
+      statusText.classList.add('disconnected');
       statusText.textContent = 'Disconnected';
       btnReconnect.style.display = 'inline-block';
       btnReconnect.disabled = false;

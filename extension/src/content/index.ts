@@ -839,6 +839,10 @@ function buildCompactDomTree(options: CompactDomTreeOptions = {}): string {
       // 存储索引映射
       elementIndexMap.set(currentIndex, el);
 
+      // 给元素添加 data-agent-index 属性，用于后续通过选择器查找
+      // 这样即使 React/Vue 重新渲染，我们也能通过属性找到正确的元素
+      (el as HTMLElement).dataset.agentIndex = String(currentIndex);
+
       if (interactive) interactiveCount++;
       if (isTextTag) textCount++;
 
@@ -992,8 +996,16 @@ function formatElement(el: CompactElement): string {
 
 /**
  * 通过索引获取元素
+ * 优先使用 data-agent-index 属性查找，这样即使 React/Vue 重新渲染也能找到正确的元素
  */
 function getElementByIndex(index: number): Element | undefined {
+  // 首先尝试通过 data-agent-index 属性查找（更可靠，能处理框架重新渲染的情况）
+  const elementByAttr = document.querySelector(`[data-agent-index="${index}"]`);
+  if (elementByAttr) {
+    return elementByAttr;
+  }
+
+  // 回退到 Map 中的缓存引用
   return elementIndexMap.get(index);
 }
 
@@ -1001,7 +1013,7 @@ function getElementByIndex(index: number): Element | undefined {
  * 通过索引点击元素
  */
 function clickElementByIndex(index: number): ContentResponse<{ tagName: string; text: string }> {
-  const el = elementIndexMap.get(index);
+  const el = getElementByIndex(index);
   if (!el) {
     return { success: false, error: `Element with index ${index} not found. Please refresh DOM tree first.` };
   }
@@ -1042,7 +1054,7 @@ function typeInElementByIndex(
   text: string,
   clearFirst: boolean = false
 ): ContentResponse<{ tagName: string }> {
-  const el = elementIndexMap.get(index);
+  const el = getElementByIndex(index);
   if (!el) {
     return { success: false, error: `Element with index ${index} not found. Please refresh DOM tree first.` };
   }
