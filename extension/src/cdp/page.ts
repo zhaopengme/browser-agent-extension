@@ -960,6 +960,71 @@ export class Page {
   }
 
   /**
+   * 获取网络请求并包含响应体
+   * 通过调用 Network.getResponseBody 获取每个请求的响应内容
+   */
+  async getNetworkRequestsWithResponse(options?: {
+    urlPattern?: string;
+    method?: string;
+    statusCode?: number;
+    resourceType?: string;
+    clear?: boolean;
+  }): Promise<StoredNetworkRequest[]> {
+    // 先获取过滤后的请求
+    let requests = Array.from(this.networkRequests.values());
+
+    // 按URL模式过滤
+    if (options?.urlPattern) {
+      const regex = new RegExp(options.urlPattern);
+      requests = requests.filter(r => regex.test(r.url));
+    }
+
+    // 按方法过滤
+    if (options?.method) {
+      requests = requests.filter(r => r.method.toUpperCase() === options.method!.toUpperCase());
+    }
+
+    // 按状态码过滤
+    if (options?.statusCode !== undefined) {
+      requests = requests.filter(r => r.response?.status === options.statusCode);
+    }
+
+    // 按资源类型过滤
+    if (options?.resourceType) {
+      requests = requests.filter(r => r.resourceType === options.resourceType);
+    }
+
+    // 获取每个请求的响应体
+    const requestsWithBody = await Promise.all(
+      requests.map(async (request) => {
+        // 如果已经有响应且还没有获取过响应体
+        if (request.response && !request.responseBody) {
+          try {
+            const bodyResult = await this.transport.send<{ body: string; base64Encoded: boolean }>(
+              'Network.getResponseBody',
+              { requestId: request.requestId }
+            );
+            request.responseBody = bodyResult.base64Encoded
+              ? atob(bodyResult.body)
+              : bodyResult.body;
+          } catch (error) {
+            // 某些请求可能无法获取响应体（如被取消或重定向的请求）
+            request.responseBody = `[Error getting response body: ${error instanceof Error ? error.message : 'Unknown error'}]`;
+          }
+        }
+        return request;
+      })
+    );
+
+    // 清空已捕获的请求
+    if (options?.clear) {
+      this.networkRequests.clear();
+    }
+
+    return requestsWithBody;
+  }
+
+  /**
    * 等待指定的网络响应
    */
   async waitForResponse(

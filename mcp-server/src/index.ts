@@ -388,6 +388,20 @@ Only use this when you need precise bounding rectangles or full attribute data.`
     },
   },
   {
+    name: 'browser_get_network_requests_with_response',
+    description: 'Get captured network requests with response body included. This calls Network.getResponseBody for each request to fetch the actual response content. Use this when you need to inspect API response data or debug network issues.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        urlPattern: { type: 'string', description: 'Regex pattern to filter requests by URL' },
+        method: { type: 'string', description: 'HTTP method to filter (GET, POST, etc.)' },
+        statusCode: { type: 'number', description: 'Status code to filter' },
+        resourceType: { type: 'string', description: 'Resource type (XHR, Fetch, Document, etc.)' },
+        clear: { type: 'boolean', description: 'Clear captured requests after returning' },
+      },
+    },
+  },
+  {
     name: 'browser_wait_for_response',
     description: 'Wait for a network response matching the URL pattern',
     inputSchema: {
@@ -602,6 +616,7 @@ function getActionFromToolName(toolName: string): string {
     browser_enable_network: 'enable_network',
     browser_disable_network: 'disable_network',
     browser_get_network_requests: 'get_network_requests',
+    browser_get_network_requests_with_response: 'get_network_requests_with_response',
     browser_clear_network_requests: 'clear_network_requests',
     browser_wait_for_response: 'wait_for_response',
 

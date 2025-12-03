@@ -132,7 +132,7 @@ async function executeAction(action: string, params: Record<string, unknown>): P
       const text = params.text as string;
       if (!text) throw new Error('text is required');
 
-      // 支持通过索引输入
+      // 支持通过索引输入（推荐）
       if (params.index !== undefined) {
         const result = await typeByIndex(
           params.index as number,
@@ -141,14 +141,17 @@ async function executeAction(action: string, params: Record<string, unknown>): P
         );
         return { typed: true, length: text.length, ...result };
       } else if (params.selector) {
+        // 通过选择器输入
         await page.typeInElement(params.selector as string, text, {
           clearFirst: params.clearFirst as boolean,
           delay: params.delay as number,
         });
+        return { typed: true, length: text.length };
       } else {
-        await page.type(text, params.delay as number);
+        // 没有指定 index 或 selector，尝试在当前聚焦元素中输入
+        const result = await typeInFocused(text, params.clearFirst as boolean);
+        return { typed: true, length: text.length, ...result };
       }
-      return { typed: true, length: text.length };
     }
 
     case 'scroll': {
@@ -223,6 +226,18 @@ async function executeAction(action: string, params: Record<string, unknown>): P
       return domTree;
     }
 
+    case 'get_dom_tree_structured': {
+      // 树状结构版：包含所有可见元素
+      const domTree = await getDomTreeStructured(params);
+      return domTree;
+    }
+
+    case 'get_dom_tree_aria': {
+      // ARIA 树格式（最紧凑，参考 Playwright MCP）
+      const ariaTree = await getDomTreeAria(params);
+      return ariaTree;
+    }
+
     case 'get_tabs': {
       const tabs = await browserContext.getAllTabsInfo();
       return { tabs };
@@ -282,6 +297,17 @@ async function executeAction(action: string, params: Record<string, unknown>): P
 
     case 'get_network_requests': {
       const requests = page.getNetworkRequests({
+        urlPattern: params.urlPattern as string | undefined,
+        method: params.method as string | undefined,
+        statusCode: params.statusCode as number | undefined,
+        resourceType: params.resourceType as string | undefined,
+        clear: params.clear as boolean | undefined,
+      });
+      return { requests, count: requests.length };
+    }
+
+    case 'get_network_requests_with_response': {
+      const requests = await page.getNetworkRequestsWithResponse({
         urlPattern: params.urlPattern as string | undefined,
         method: params.method as string | undefined,
         statusCode: params.statusCode as number | undefined,
@@ -555,6 +581,35 @@ async function typeByIndex(
 }
 
 /**
+ * 在当前聚焦元素中输入文本
+ */
+async function typeInFocused(
+  text: string,
+  clearFirst?: boolean
+): Promise<{ tagName?: string }> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) {
+    throw new Error('No active tab found');
+  }
+
+  // 确保 content script 已注入
+  await ensureContentScriptInjected(tab.id);
+
+  const response = await chrome.tabs.sendMessage(tab.id, {
+    type: 'TYPE_IN_FOCUSED',
+    payload: { text, clearFirst },
+  });
+
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to type in focused element');
+  }
+
+  return {
+    tagName: response.data.tagName,
+  };
+}
+
+/**
  * 获取 content script 文件路径（从 manifest 中读取）
  */
 function getContentScriptPath(): string {
@@ -643,6 +698,54 @@ async function getDomTreeFull(selector?: string): Promise<unknown> {
   }
 
   return { tree: response.data, selector: selector || 'body' };
+}
+
+/**
+ * 获取页面 DOM 树（树状结构，包含所有可见元素）
+ */
+async function getDomTreeStructured(params: Record<string, unknown>): Promise<unknown> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) {
+    throw new Error('No active tab found');
+  }
+
+  // 确保 content script 已注入
+  await ensureContentScriptInjected(tab.id);
+
+  const response = await chrome.tabs.sendMessage(tab.id, {
+    type: 'GET_DOM_TREE_STRUCTURED',
+    payload: params,
+  });
+
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to get DOM tree');
+  }
+
+  return response.data;
+}
+
+/**
+ * 获取页面 ARIA 树（最紧凑格式，参考 Playwright MCP）
+ */
+async function getDomTreeAria(params: Record<string, unknown>): Promise<unknown> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) {
+    throw new Error('No active tab found');
+  }
+
+  // 确保 content script 已注入
+  await ensureContentScriptInjected(tab.id);
+
+  const response = await chrome.tabs.sendMessage(tab.id, {
+    type: 'GET_DOM_TREE_ARIA',
+    payload: params,
+  });
+
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to get ARIA tree');
+  }
+
+  return response.data;
 }
 
 // 启动初始化

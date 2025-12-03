@@ -326,7 +326,7 @@ function getOverlayState(): ContentResponse<{ enabled: boolean; status: string }
 }
 
 /**
- * 构建 DOM 树（带元素索引）
+ * 构建 DOM 树（带元素索引）- 完整版
  */
 function buildDomTree(): DOMTreeNode[] {
   let index = 0;
@@ -400,6 +400,745 @@ function buildDomTree(): DOMTreeNode[] {
   }
 
   return result;
+}
+
+// ============================================================================
+// 紧凑格式 DOM 树（参考 Playwright ARIA Snapshot）
+// ============================================================================
+
+// 元素索引到 DOM 元素的映射（用于 click/type 操作）
+let elementIndexMap: Map<number, Element> = new Map();
+
+/**
+ * 可交互元素的标签列表
+ */
+const INTERACTIVE_TAGS = new Set([
+  'a', 'button', 'input', 'textarea', 'select', 'option',
+  'details', 'summary', 'dialog', 'menu', 'menuitem',
+]);
+
+/**
+ * 可交互的 role 属性
+ */
+const INTERACTIVE_ROLES = new Set([
+  'button', 'link', 'menuitem', 'menuitemcheckbox', 'menuitemradio',
+  'option', 'radio', 'switch', 'tab', 'treeitem', 'checkbox',
+  'combobox', 'listbox', 'searchbox', 'slider', 'spinbutton', 'textbox',
+]);
+
+/**
+ * 语义区域标签（这些容器会被保留以提供结构）
+ */
+const LANDMARK_TAGS = new Set([
+  'header', 'nav', 'main', 'aside', 'footer', 'form',
+]);
+
+/**
+ * 有意义的文本标签（独立输出文本）
+ */
+const TEXT_TAGS = new Set([
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'label', 'li', 'td', 'th', 'caption', 'figcaption',
+]);
+
+/**
+ * 需要排除的标签
+ */
+const EXCLUDED_TAGS = new Set([
+  'script', 'style', 'noscript', 'svg', 'path', 'defs', 'clippath',
+  'lineargradient', 'radialgradient', 'stop', 'symbol', 'use',
+  'meta', 'link', 'head', 'title',
+]);
+
+interface CompactElement {
+  index: number;
+  element: Element;
+  tag: string;
+  text: string;
+  rect: { x: number; y: number; width: number; height: number };
+  attrs: Record<string, string>;
+  landmark?: string;
+}
+
+interface CompactDomTreeOptions {
+  selector?: string;      // 限定范围选择器
+  maxDepth?: number;      // 最大遍历深度
+  excludeTags?: string[]; // 额外排除的标签
+}
+
+/**
+ * 判断元素是否可交互
+ */
+function isInteractive(el: Element): boolean {
+  const tag = el.tagName.toLowerCase();
+
+  // 检查标签
+  if (INTERACTIVE_TAGS.has(tag)) return true;
+
+  // 检查 role
+  const role = el.getAttribute('role');
+  if (role && INTERACTIVE_ROLES.has(role)) return true;
+
+  // 检查 contenteditable
+  if (el.getAttribute('contenteditable') === 'true') return true;
+  if ((el as HTMLElement).isContentEditable) return true;
+
+  // 检查 tabindex（可聚焦元素）
+  const tabindex = el.getAttribute('tabindex');
+  if (tabindex && parseInt(tabindex) >= 0) return true;
+
+  // 检查点击事件（通过 onclick 属性）
+  if (el.hasAttribute('onclick')) return true;
+
+  // 检查 data-action 等常见交互属性
+  if (el.hasAttribute('data-action') || el.hasAttribute('data-click')) return true;
+
+  return false;
+}
+
+/**
+ * 判断元素是否可见
+ */
+function isVisible(el: Element): boolean {
+  const style = window.getComputedStyle(el);
+  if (style.display === 'none') return false;
+  if (style.visibility === 'hidden') return false;
+  if (style.opacity === '0') return false;
+
+  const rect = el.getBoundingClientRect();
+  if (rect.width === 0 && rect.height === 0) return false;
+
+  return true;
+}
+
+/**
+ * 获取元素的可访问名称
+ */
+function getAccessibleName(el: Element): string {
+  // 优先级：aria-label > aria-labelledby > alt > title > placeholder > text content
+  const ariaLabel = el.getAttribute('aria-label');
+  if (ariaLabel) return ariaLabel.trim();
+
+  const ariaLabelledBy = el.getAttribute('aria-labelledby');
+  if (ariaLabelledBy) {
+    const labelEl = document.getElementById(ariaLabelledBy);
+    if (labelEl) return labelEl.textContent?.trim() || '';
+  }
+
+  const alt = el.getAttribute('alt');
+  if (alt) return alt.trim();
+
+  const title = el.getAttribute('title');
+  if (title) return title.trim();
+
+  const placeholder = el.getAttribute('placeholder');
+  if (placeholder) return placeholder.trim();
+
+  // 获取直接文本内容（不包括子元素）
+  let text = '';
+  for (const child of el.childNodes) {
+    if (child.nodeType === Node.TEXT_NODE) {
+      text += child.textContent?.trim() || '';
+    }
+  }
+
+  // 如果没有直接文本，获取完整文本（但限制长度）
+  if (!text) {
+    text = el.textContent?.trim() || '';
+  }
+
+  return text.slice(0, 80);
+}
+
+/**
+ * 查找最近的 landmark 祖先
+ */
+function findLandmark(el: Element): string | undefined {
+  let current: Element | null = el.parentElement;
+  while (current) {
+    const tag = current.tagName.toLowerCase();
+    if (LANDMARK_TAGS.has(tag)) {
+      return tag;
+    }
+    const role = current.getAttribute('role');
+    if (role && ['banner', 'navigation', 'main', 'complementary', 'contentinfo', 'form', 'search', 'region'].includes(role)) {
+      return role;
+    }
+    current = current.parentElement;
+  }
+  return undefined;
+}
+
+/**
+ * 格式化边界框
+ */
+function formatRect(rect: DOMRect): string {
+  return `@(${Math.round(rect.x)},${Math.round(rect.y)},${Math.round(rect.width)},${Math.round(rect.height)})`;
+}
+
+/**
+ * 构建紧凑格式的 DOM 树（树状结构）
+ * 返回文字、可操作元素，以及构建树状结构必须的容器节点
+ */
+function buildCompactDomTree(options: CompactDomTreeOptions = {}): string {
+  const { selector, maxDepth = 15, excludeTags = [] } = options;
+  const excludeSet = new Set([...EXCLUDED_TAGS, ...excludeTags.map(t => t.toLowerCase())]);
+
+  // 重置元素索引映射
+  elementIndexMap = new Map();
+  let index = 0;
+  let interactiveCount = 0;
+  let textCount = 0;
+
+  // 获取根元素
+  const root = selector ? document.querySelector(selector) : document.body;
+  if (!root) {
+    return `# DOM Tree (0 elements)\n\nNo elements found${selector ? ` for selector: ${selector}` : ''}`;
+  }
+
+  /**
+   * 获取元素的直接文本内容（不包括子元素的文本）
+   */
+  function getDirectText(el: Element): string {
+    let text = '';
+    for (const child of el.childNodes) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        const t = child.textContent?.trim();
+        if (t) text += t + ' ';
+      }
+    }
+    return text.trim().slice(0, 100);
+  }
+
+  /**
+   * 判断节点是否应该输出
+   * 策略：只输出可交互元素、语义容器、有意义的文本元素
+   */
+  function shouldOutputNode(el: Element): { output: boolean; interactive: boolean; text: string; isLandmark: boolean; isTextTag: boolean } {
+    const tag = el.tagName.toLowerCase();
+    const interactive = isInteractive(el);
+    const directText = getDirectText(el);
+    const isLandmark = LANDMARK_TAGS.has(tag);
+    const isTextTag = TEXT_TAGS.has(tag);
+
+    // 可交互元素：始终输出
+    if (interactive) {
+      return { output: true, interactive: true, text: directText, isLandmark: false, isTextTag: false };
+    }
+
+    // 语义容器：输出（用于结构分组）
+    if (isLandmark) {
+      return { output: true, interactive: false, text: '', isLandmark: true, isTextTag: false };
+    }
+
+    // 有意义的文本标签：输出
+    if (isTextTag && directText.length > 0) {
+      return { output: true, interactive: false, text: directText, isLandmark: false, isTextTag: true };
+    }
+
+    return { output: false, interactive: false, text: directText, isLandmark: false, isTextTag: false };
+  }
+
+  /**
+   * 格式化单个节点为紧凑字符串
+   */
+  function formatCompactNode(
+    el: Element,
+    tag: string,
+    nodeIndex: number,
+    text: string,
+    interactive: boolean,
+    isLandmark: boolean,
+    depth: number
+  ): string {
+    const indent = '  '.repeat(depth);
+    const parts: string[] = [];
+
+    // 索引和标签
+    parts.push(`[${nodeIndex}]`);
+    parts.push(tag);
+
+    // role 属性（如果有且不是标签本身）
+    const role = el.getAttribute('role');
+    if (role && role !== tag) {
+      parts.push(`[role=${role}]`);
+    }
+
+    // 类型（对于 input）
+    if (tag === 'input') {
+      const type = el.getAttribute('type') || 'text';
+      parts.push(`[type=${type}]`);
+    }
+
+    // 文本/名称（对于非 landmark 节点）
+    if (!isLandmark) {
+      const displayText = interactive ? getAccessibleName(el) : text;
+      if (displayText) {
+        parts.push(`"${displayText.replace(/"/g, '\\"')}"`);
+      }
+    }
+
+    // placeholder（对于输入框）
+    if (tag === 'input' || tag === 'textarea') {
+      const placeholder = el.getAttribute('placeholder');
+      if (placeholder) parts.push(`placeholder="${placeholder.slice(0, 30)}"`);
+    }
+
+    // value（对于输入框，显示当前值）
+    if (tag === 'input') {
+      const type = el.getAttribute('type') || 'text';
+      const inputEl = el as HTMLInputElement;
+      if (!['password', 'hidden'].includes(type) && inputEl.value) {
+        parts.push(`value="${inputEl.value.slice(0, 30)}"`);
+      }
+    }
+
+    // textarea 内容
+    if (tag === 'textarea') {
+      const textareaEl = el as HTMLTextAreaElement;
+      if (textareaEl.value) {
+        parts.push(`value="${textareaEl.value.slice(0, 50)}"`);
+      }
+    }
+
+    // select 当前选中项和选项列表
+    if (tag === 'select') {
+      const selectEl = el as HTMLSelectElement;
+      const selectedOption = selectEl.options[selectEl.selectedIndex];
+      if (selectedOption) {
+        parts.push(`selected="${selectedOption.text.slice(0, 20)}"`);
+      }
+      // 列出所有选项（最多5个）
+      const options = Array.from(selectEl.options).slice(0, 5).map(o => o.text.slice(0, 15));
+      if (options.length > 0) {
+        parts.push(`options=[${options.join('|')}]`);
+      }
+    }
+
+    // name 属性（对于表单元素）
+    if (['input', 'select', 'textarea'].includes(tag)) {
+      const name = el.getAttribute('name');
+      if (name) parts.push(`name="${name}"`);
+    }
+
+    // href（对于链接）
+    if (tag === 'a') {
+      const href = el.getAttribute('href');
+      if (href) {
+        try {
+          const url = new URL(href, window.location.origin);
+          const shortHref = url.origin === window.location.origin
+            ? url.pathname + url.search
+            : href.slice(0, 50);
+          parts.push(`→ ${shortHref}`);
+        } catch {
+          parts.push(`→ ${href.slice(0, 50)}`);
+        }
+      }
+    }
+
+    // img src 和 alt
+    if (tag === 'img') {
+      const alt = el.getAttribute('alt');
+      if (alt) parts.push(`alt="${alt.slice(0, 30)}"`);
+      const src = el.getAttribute('src');
+      if (src) {
+        const shortSrc = src.length > 40 ? src.slice(0, 37) + '...' : src;
+        parts.push(`src="${shortSrc}"`);
+      }
+    }
+
+    // 状态属性
+    const stateAttrs: string[] = [];
+    if (el.hasAttribute('disabled')) stateAttrs.push('disabled');
+    if (el.hasAttribute('readonly')) stateAttrs.push('readonly');
+    if (el.hasAttribute('required')) stateAttrs.push('required');
+    if (tag === 'input') {
+      const type = el.getAttribute('type');
+      if ((type === 'checkbox' || type === 'radio') && (el as HTMLInputElement).checked) {
+        stateAttrs.push('checked');
+      }
+    }
+    const expanded = el.getAttribute('aria-expanded');
+    if (expanded === 'true') stateAttrs.push('expanded');
+    if (expanded === 'false') stateAttrs.push('collapsed');
+    const selected = el.getAttribute('aria-selected');
+    if (selected === 'true') stateAttrs.push('selected');
+
+    if (stateAttrs.length > 0) {
+      parts.push(`[${stateAttrs.join(',')}]`);
+    }
+
+    // 边界框
+    const rect = el.getBoundingClientRect();
+    parts.push(`@(${Math.round(rect.x)},${Math.round(rect.y)},${Math.round(rect.width)},${Math.round(rect.height)})`);
+
+    return `${indent}${parts.join(' ')}`;
+  }
+
+  /**
+   * 递归处理节点，返回此节点的输出行
+   * @param el 当前元素
+   * @param depth 当前深度
+   * @param insideInteractive 是否在可交互元素内部（用于避免重复输出文本）
+   */
+  function processNode(el: Element, depth: number, insideInteractive: boolean = false): string[] {
+    if (depth > maxDepth) return [];
+
+    const tag = el.tagName.toLowerCase();
+
+    // 跳过排除的标签
+    if (excludeSet.has(tag)) return [];
+
+    // 跳过遮罩层元素
+    if (el.id === 'agents-cc-overlay') return [];
+
+    // 检查可见性
+    if (!isVisible(el)) return [];
+
+    const lines: string[] = [];
+    const { output: shouldOutput, interactive, text: directText, isLandmark, isTextTag } = shouldOutputNode(el);
+
+    // 如果在可交互元素内部，跳过纯文本子元素（避免重复）
+    if (insideInteractive && !interactive && !isLandmark) {
+      // 仍然递归处理子元素（可能有嵌套的可交互元素）
+      for (const child of el.children) {
+        lines.push(...processNode(child, depth, true));
+      }
+      return lines;
+    }
+
+    // 收集子节点的输出
+    const childLines: string[] = [];
+    const childInsideInteractive = insideInteractive || interactive;
+
+    // 处理 Shadow DOM
+    if (el.shadowRoot) {
+      for (const child of el.shadowRoot.children) {
+        if (child instanceof Element) {
+          childLines.push(...processNode(child, depth + 1, childInsideInteractive));
+        }
+      }
+    }
+
+    // 处理普通子元素
+    for (const child of el.children) {
+      childLines.push(...processNode(child, depth + 1, childInsideInteractive));
+    }
+
+    // 决定是否输出当前节点
+    // 只有以下情况才输出：
+    // 1. 可交互元素
+    // 2. 语义容器（landmark）且有子节点需要输出
+    // 3. 有意义的文本标签
+    const hasChildren = childLines.length > 0;
+    const needsOutput = interactive || isTextTag || (isLandmark && hasChildren);
+
+    if (needsOutput) {
+      const currentIndex = index++;
+
+      // 存储索引映射
+      elementIndexMap.set(currentIndex, el);
+
+      if (interactive) interactiveCount++;
+      if (isTextTag) textCount++;
+
+      // 格式化当前节点
+      lines.push(formatCompactNode(el, tag, currentIndex, directText, interactive, isLandmark, depth));
+
+      // 添加子节点输出
+      lines.push(...childLines);
+    } else if (hasChildren) {
+      // 当前节点不需要输出，但有子节点需要输出，直接返回子节点
+      lines.push(...childLines);
+    }
+
+    return lines;
+  }
+
+  // 开始遍历
+  const lines = processNode(root, 0);
+
+  // 构建输出头
+  const header = [
+    `# DOM Tree`,
+    `# ${index} elements, ${interactiveCount} interactive, ${textCount} text`,
+  ].join('\n');
+
+  return header + '\n\n' + lines.join('\n');
+}
+
+/**
+ * 获取紧凑格式的属性
+ */
+function getCompactAttributes(el: Element): Record<string, string> {
+  const attrs: Record<string, string> = {};
+  const tag = el.tagName.toLowerCase();
+
+  // 对于链接，获取 href
+  if (tag === 'a') {
+    const href = el.getAttribute('href');
+    if (href) {
+      // 简化 URL，只保留路径部分
+      try {
+        const url = new URL(href, window.location.origin);
+        if (url.origin === window.location.origin) {
+          attrs.href = url.pathname + url.search + url.hash;
+        } else {
+          attrs.href = href.slice(0, 50);
+        }
+      } catch {
+        attrs.href = href.slice(0, 50);
+      }
+    }
+  }
+
+  // 对于输入框，获取 type 和 placeholder
+  if (tag === 'input') {
+    const type = el.getAttribute('type') || 'text';
+    if (type !== 'text') attrs.type = type;
+    const placeholder = el.getAttribute('placeholder');
+    if (placeholder) attrs.placeholder = placeholder.slice(0, 30);
+    const value = (el as HTMLInputElement).value;
+    if (value && type !== 'password') attrs.value = value.slice(0, 20);
+  }
+
+  // 检查禁用状态
+  if (el.hasAttribute('disabled')) attrs.disabled = 'true';
+
+  // 检查选中状态
+  if (tag === 'input') {
+    const type = el.getAttribute('type');
+    if (type === 'checkbox' || type === 'radio') {
+      if ((el as HTMLInputElement).checked) attrs.checked = 'true';
+    }
+  }
+
+  // 检查展开状态
+  const expanded = el.getAttribute('aria-expanded');
+  if (expanded) attrs.expanded = expanded;
+
+  // 检查选中状态（aria）
+  const selected = el.getAttribute('aria-selected');
+  if (selected) attrs.selected = selected;
+
+  return attrs;
+}
+
+/**
+ * 计算一组元素的边界框
+ */
+function calculateGroupRect(elements: CompactElement[]): DOMRect {
+  let minX = Infinity, minY = Infinity;
+  let maxX = -Infinity, maxY = -Infinity;
+
+  for (const el of elements) {
+    minX = Math.min(minX, el.rect.x);
+    minY = Math.min(minY, el.rect.y);
+    maxX = Math.max(maxX, el.rect.x + el.rect.width);
+    maxY = Math.max(maxY, el.rect.y + el.rect.height);
+  }
+
+  return new DOMRect(minX, minY, maxX - minX, maxY - minY);
+}
+
+/**
+ * 格式化单个元素为紧凑字符串
+ */
+function formatElement(el: CompactElement): string {
+  const parts: string[] = [];
+
+  // 索引
+  parts.push(`[${el.index}]`);
+
+  // 标签
+  parts.push(el.tag);
+
+  // 类型（对于 input）
+  if (el.attrs.type) {
+    parts.push(`[type=${el.attrs.type}]`);
+  }
+
+  // 文本/名称
+  if (el.text) {
+    parts.push(`"${el.text.replace(/"/g, '\\"')}"`);
+  }
+
+  // placeholder（对于输入框）
+  if (el.attrs.placeholder && !el.text) {
+    parts.push(`(${el.attrs.placeholder})`);
+  }
+
+  // href（对于链接）
+  if (el.attrs.href) {
+    parts.push(`→ ${el.attrs.href}`);
+  }
+
+  // 状态属性
+  const stateAttrs: string[] = [];
+  if (el.attrs.disabled) stateAttrs.push('disabled');
+  if (el.attrs.checked) stateAttrs.push('checked');
+  if (el.attrs.expanded === 'true') stateAttrs.push('expanded');
+  if (el.attrs.selected === 'true') stateAttrs.push('selected');
+
+  if (stateAttrs.length > 0) {
+    parts.push(`[${stateAttrs.join(',')}]`);
+  }
+
+  // 边界框
+  parts.push(`@(${el.rect.x},${el.rect.y},${el.rect.width},${el.rect.height})`);
+
+  return parts.join(' ');
+}
+
+/**
+ * 通过索引获取元素
+ */
+function getElementByIndex(index: number): Element | undefined {
+  return elementIndexMap.get(index);
+}
+
+/**
+ * 通过索引点击元素
+ */
+function clickElementByIndex(index: number): ContentResponse<{ tagName: string; text: string }> {
+  const el = elementIndexMap.get(index);
+  if (!el) {
+    return { success: false, error: `Element with index ${index} not found. Please refresh DOM tree first.` };
+  }
+
+  try {
+    // 滚动到元素可见
+    el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
+
+    // 模拟点击
+    const rect = el.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+
+    // 使用原生 click() 方法，它会正确触发所有事件（包括 mousedown, mouseup, click）
+    // 不要同时使用 dispatchEvent 和 .click()，否则会导致双重点击
+    (el as HTMLElement).click();
+
+    return {
+      success: true,
+      data: {
+        tagName: el.tagName.toLowerCase(),
+        text: getAccessibleName(el).slice(0, 100),
+      },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to click element',
+    };
+  }
+}
+
+/**
+ * 通过索引在元素中输入文本
+ */
+function typeInElementByIndex(
+  index: number,
+  text: string,
+  clearFirst: boolean = false
+): ContentResponse<{ tagName: string }> {
+  const el = elementIndexMap.get(index);
+  if (!el) {
+    return { success: false, error: `Element with index ${index} not found. Please refresh DOM tree first.` };
+  }
+
+  try {
+    // 滚动到元素可见
+    el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
+
+    // 聚焦元素
+    (el as HTMLElement).focus();
+
+    const tag = el.tagName.toLowerCase();
+
+    if (tag === 'input' || tag === 'textarea') {
+      const inputEl = el as HTMLInputElement | HTMLTextAreaElement;
+
+      if (clearFirst) {
+        inputEl.value = '';
+      }
+
+      inputEl.value += text;
+
+      // 触发 input 事件
+      inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+      inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+    } else if ((el as HTMLElement).isContentEditable || el.getAttribute('contenteditable') === 'true') {
+      if (clearFirst) {
+        el.textContent = '';
+      }
+
+      // 使用 execCommand 或直接修改
+      document.execCommand('insertText', false, text);
+    } else {
+      return { success: false, error: `Element is not editable: ${tag}` };
+    }
+
+    return {
+      success: true,
+      data: { tagName: tag },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to type in element',
+    };
+  }
+}
+
+/**
+ * 在当前聚焦的元素中输入文本
+ */
+function typeInFocusedElement(
+  text: string,
+  clearFirst: boolean = false
+): ContentResponse<{ tagName: string }> {
+  const el = document.activeElement;
+  if (!el || el === document.body) {
+    return { success: false, error: 'No element is currently focused. Please click on an element first or use index parameter.' };
+  }
+
+  try {
+    const tag = el.tagName.toLowerCase();
+
+    if (tag === 'input' || tag === 'textarea') {
+      const inputEl = el as HTMLInputElement | HTMLTextAreaElement;
+
+      if (clearFirst) {
+        inputEl.value = '';
+      }
+
+      inputEl.value += text;
+
+      // 触发 input 事件
+      inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+      inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+    } else if ((el as HTMLElement).isContentEditable || el.getAttribute('contenteditable') === 'true') {
+      if (clearFirst) {
+        el.textContent = '';
+      }
+
+      // 使用 execCommand 插入文本
+      document.execCommand('insertText', false, text);
+    } else {
+      return { success: false, error: `Focused element is not editable: ${tag}. Please use index parameter to specify the target element.` };
+    }
+
+    return {
+      success: true,
+      data: { tagName: tag },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to type in focused element',
+    };
+  }
 }
 
 interface DOMTreeNode {
@@ -629,10 +1368,50 @@ chrome.runtime.onMessage.addListener(
     let response: ContentResponse<unknown>;
 
     switch (message.type) {
+      // ========== PING（检测 content script 是否加载）==========
+      case 'PING':
+        response = { success: true, data: 'pong' };
+        break;
+
+      // ========== DOM 树操作 ==========
       case 'GET_DOM_TREE':
+        // 紧凑格式 DOM 树（默认，节省 token）
+        response = {
+          success: true,
+          data: buildCompactDomTree({
+            selector: message.payload?.selector,
+            maxDepth: message.payload?.maxDepth,
+            excludeTags: message.payload?.excludeTags,
+          }),
+        };
+        break;
+
+      case 'GET_DOM_TREE_FULL':
+        // 完整 JSON 格式 DOM 树
         response = { success: true, data: buildDomTree() };
         break;
 
+      // ========== 索引操作（配合紧凑 DOM 树）==========
+      case 'CLICK_BY_INDEX':
+        response = clickElementByIndex(message.payload.index);
+        break;
+
+      case 'TYPE_BY_INDEX':
+        response = typeInElementByIndex(
+          message.payload.index,
+          message.payload.text,
+          message.payload.clearFirst
+        );
+        break;
+
+      case 'TYPE_IN_FOCUSED':
+        response = typeInFocusedElement(
+          message.payload.text,
+          message.payload.clearFirst
+        );
+        break;
+
+      // ========== 选择器操作 ==========
       case 'GET_ELEMENT_INFO':
         response = getElementInfo(message.payload.selector);
         break;
@@ -657,7 +1436,7 @@ chrome.runtime.onMessage.addListener(
         response = executeScript(message.payload.script);
         break;
 
-      // 遮罩层控制
+      // ========== 遮罩层控制 ==========
       case 'SHOW_OVERLAY':
         response = showOverlay(message.payload?.status);
         break;
