@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "WebSearch",
+      "WebFetch(domain:developers.weixin.qq.com)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
