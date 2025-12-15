@@ -104,8 +104,22 @@ async function executeAction(action: string, params: Record<string, unknown>): P
     case 'navigate': {
       const url = params.url as string;
       if (!url) throw new Error('URL is required');
-      await page.navigateTo(url);
-      await page.waitForNavigation().catch(() => {});
+
+      try {
+        await page.navigateTo(url);
+        await page.waitForNavigation().catch(() => {});
+      } catch (navError) {
+        // 导航过程中 debugger 可能会断开，这是正常的
+        // 等待页面加载一段时间
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+
+      // 导航后确保连接仍然有效
+      await page.ensureConnected();
+
+      // 等待页面基本加载完成
+      await new Promise(resolve => setTimeout(resolve, 500));
+
       const info = await page.getPageInfo();
       return { url: info.url, title: info.title };
     }
@@ -269,17 +283,35 @@ async function executeAction(action: string, params: Record<string, unknown>): P
     }
 
     case 'go_back': {
-      await page.goBack();
+      try {
+        await page.goBack();
+        await page.waitForNavigation().catch(() => {});
+      } catch {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      await page.ensureConnected();
       return { navigated: true };
     }
 
     case 'go_forward': {
-      await page.goForward();
+      try {
+        await page.goForward();
+        await page.waitForNavigation().catch(() => {});
+      } catch {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      await page.ensureConnected();
       return { navigated: true };
     }
 
     case 'reload': {
-      await page.reload();
+      try {
+        await page.reload();
+        await page.waitForNavigation().catch(() => {});
+      } catch {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      await page.ensureConnected();
       return { reloaded: true };
     }
 

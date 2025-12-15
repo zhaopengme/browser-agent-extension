@@ -115,6 +115,23 @@ export class Page {
   }
 
   /**
+   * 检查连接是否有效
+   */
+  isConnected(): boolean {
+    return this.initialized && this.transport.isAttached();
+  }
+
+  /**
+   * 重新初始化连接（如果断开）
+   */
+  async ensureConnected(): Promise<void> {
+    if (!this.transport.isAttached()) {
+      this.initialized = false;
+      await this.initialize();
+    }
+  }
+
+  /**
    * 导航到指定 URL
    */
   async navigateTo(url: string): Promise<{ frameId: string; loaderId: string }> {

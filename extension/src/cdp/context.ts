@@ -126,12 +126,23 @@ export class BrowserContext {
    * 获取或创建 Page 实例
    */
   private async getOrCreatePage(tabId: number): Promise<Page> {
-    if (!this.pages.has(tabId)) {
-      const page = new Page(tabId);
+    let page = this.pages.get(tabId);
+
+    if (page) {
+      // 检查现有连接是否仍然有效
+      if (!page.isConnected()) {
+        // 连接已断开，需要重新初始化
+        console.log(`[BrowserContext] Reconnecting to tab ${tabId}...`);
+        await page.ensureConnected();
+      }
+    } else {
+      // 创建新的 Page 实例
+      page = new Page(tabId);
       await page.initialize();
       this.pages.set(tabId, page);
     }
-    return this.pages.get(tabId)!;
+
+    return page;
   }
 
   /**

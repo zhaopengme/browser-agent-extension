@@ -3,7 +3,8 @@
     "allow": [
       "Bash(ls:*)",
       "WebSearch",
-      "WebFetch(domain:developers.weixin.qq.com)"
+      "WebFetch(domain:developers.weixin.qq.com)",
+      "mcp__browser-agent__browser_get_dom_tree"
     ],
     "deny": [],
     "ask": []

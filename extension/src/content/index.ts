@@ -415,6 +415,7 @@ let elementIndexMap: Map<number, Element> = new Map();
 const INTERACTIVE_TAGS = new Set([
   'a', 'button', 'input', 'textarea', 'select', 'option',
   'details', 'summary', 'dialog', 'menu', 'menuitem',
+  'video', 'audio', // 媒体元素
 ]);
 
 /**
@@ -424,7 +425,18 @@ const INTERACTIVE_ROLES = new Set([
   'button', 'link', 'menuitem', 'menuitemcheckbox', 'menuitemradio',
   'option', 'radio', 'switch', 'tab', 'treeitem', 'checkbox',
   'combobox', 'listbox', 'searchbox', 'slider', 'spinbutton', 'textbox',
+  'gridcell', 'row', 'progressbar', 'scrollbar', 'separator', 'tooltip',
 ]);
+
+/**
+ * 暗示可交互的类名关键词（用于检测非标准交互元素）
+ */
+const INTERACTIVE_CLASS_KEYWORDS = [
+  'btn', 'button', 'click', 'link', 'tab', 'toggle', 'switch',
+  'dropdown', 'menu', 'action', 'submit', 'close', 'open',
+  'expand', 'collapse', 'play', 'pause', 'like', 'share', 'comment',
+  'follow', 'subscribe', 'download', 'upload', 'search', 'nav',
+];
 
 /**
  * 语义区域标签（这些容器会被保留以提供结构）
@@ -491,6 +503,83 @@ function isInteractive(el: Element): boolean {
 
   // 检查 data-action 等常见交互属性
   if (el.hasAttribute('data-action') || el.hasAttribute('data-click')) return true;
+
+  // 对于 div/span 等通用容器，需要更严格的检测
+  // 因为它们经常被用作布局容器而非交互元素
+  const isGenericContainer = ['div', 'span', 'section', 'article', 'li', 'ul', 'ol'].includes(tag);
+
+  // 对于通用容器，如果有子元素包含真正的交互元素（a, button, input等），
+  // 则不应该将容器标记为交互元素，应该让子元素来承担交互角色
+  if (isGenericContainer) {
+    const hasInteractiveChild = el.querySelector('a, button, input, textarea, select, [role="button"], [role="link"], [role="tab"]');
+    if (hasInteractiveChild) {
+      // 容器内有交互子元素，不将容器本身标记为交互
+      return false;
+    }
+  }
+
+  // 检查 cursor:pointer 样式（常见的交互暗示）
+  try {
+    const style = window.getComputedStyle(el);
+    if (style.cursor === 'pointer') {
+      // 对于通用容器，cursor:pointer 不足以判定为交互元素
+      // 需要有明确的交互暗示（如 aria-label、title）
+      if (isGenericContainer) {
+        const ariaLabel = el.getAttribute('aria-label');
+        const title = el.getAttribute('title');
+        // 只有当有 aria-label 或 title 时才认为是交互元素
+        if (ariaLabel || title) {
+          return true;
+        }
+        // 对于没有子元素的叶子节点，且有直接文本，可以认为是交互元素
+        const hasDirectText = Array.from(el.childNodes).some(
+          node => node.nodeType === Node.TEXT_NODE && node.textContent?.trim()
+        );
+        const childCount = el.children.length;
+        // 只有叶子节点或近乎叶子节点才考虑
+        if (hasDirectText && childCount === 0) {
+          return true;
+        }
+      } else {
+        // 非通用容器，cursor:pointer 可以作为交互暗示
+        const hasText = el.textContent?.trim();
+        const hasAriaLabel = el.getAttribute('aria-label');
+        const hasTitle = el.getAttribute('title');
+        if (hasText || hasAriaLabel || hasTitle) {
+          return true;
+        }
+      }
+    }
+  } catch {
+    // 忽略样式计算错误
+  }
+
+  // 对于通用容器，跳过类名检测（容易误判）
+  if (isGenericContainer) {
+    return false;
+  }
+
+  // 检查类名是否包含交互关键词（仅用于非通用容器）
+  const className = el.className;
+  if (typeof className === 'string' && className) {
+    const lowerClassName = className.toLowerCase();
+    for (const keyword of INTERACTIVE_CLASS_KEYWORDS) {
+      if (lowerClassName.includes(keyword)) {
+        return true;
+      }
+    }
+  }
+
+  // 检查常见的交互数据属性
+  const attrs = el.attributes;
+  for (let i = 0; i < attrs.length; i++) {
+    const attrName = attrs[i].name.toLowerCase();
+    if (attrName.startsWith('data-') &&
+        (attrName.includes('click') || attrName.includes('action') ||
+         attrName.includes('toggle') || attrName.includes('trigger'))) {
+      return true;
+    }
+  }
 
   return false;
 }
@@ -576,8 +665,26 @@ function formatRect(rect: DOMRect): string {
 }
 
 /**
+ * 内部节点结构（用于两阶段处理）
+ */
+interface InternalNode {
+  element: Element;
+  tag: string;
+  interactive: boolean;
+  isLandmark: boolean;
+  isTextTag: boolean;
+  text: string;
+  depth: number;
+  children: InternalNode[];
+}
+
+/**
  * 构建紧凑格式的 DOM 树（树状结构）
  * 返回文字、可操作元素，以及构建树状结构必须的容器节点
+ *
+ * 使用两阶段处理：
+ * 1. 第一阶段：收集需要输出的节点，构建内部树
+ * 2. 第二阶段：按输出顺序分配索引，生成输出文本
  */
 function buildCompactDomTree(options: CompactDomTreeOptions = {}): string {
   const { selector, maxDepth = 15, excludeTags = [] } = options;
@@ -585,9 +692,6 @@ function buildCompactDomTree(options: CompactDomTreeOptions = {}): string {
 
   // 重置元素索引映射
   elementIndexMap = new Map();
-  let index = 0;
-  let interactiveCount = 0;
-  let textCount = 0;
 
   // 获取根元素
   const root = selector ? document.querySelector(selector) : document.body;
@@ -610,47 +714,128 @@ function buildCompactDomTree(options: CompactDomTreeOptions = {}): string {
   }
 
   /**
-   * 判断节点是否应该输出
-   * 策略：只输出可交互元素、语义容器、有意义的文本元素
+   * 第一阶段：递归收集需要输出的节点
+   * @returns 如果节点或其子节点需要输出，返回 InternalNode；否则返回 null
    */
-  function shouldOutputNode(el: Element): { output: boolean; interactive: boolean; text: string; isLandmark: boolean; isTextTag: boolean } {
+  function collectNode(el: Element, depth: number, insideInteractive: boolean = false): InternalNode | null {
+    if (depth > maxDepth) return null;
+
     const tag = el.tagName.toLowerCase();
+
+    // 跳过排除的标签
+    if (excludeSet.has(tag)) return null;
+
+    // 跳过遮罩层元素
+    if (el.id === 'agents-cc-overlay') return null;
+
+    // 检查可见性
+    if (!isVisible(el)) return null;
+
+    // 判断当前节点的类型
     const interactive = isInteractive(el);
-    const directText = getDirectText(el);
     const isLandmark = LANDMARK_TAGS.has(tag);
     const isTextTag = TEXT_TAGS.has(tag);
+    const directText = getDirectText(el);
 
-    // 可交互元素：始终输出
-    if (interactive) {
-      return { output: true, interactive: true, text: directText, isLandmark: false, isTextTag: false };
+    // 如果在可交互元素内部，且当前不是可交互或 landmark，只收集子节点
+    if (insideInteractive && !interactive && !isLandmark) {
+      const children: InternalNode[] = [];
+
+      // 处理 Shadow DOM
+      if (el.shadowRoot) {
+        for (const child of el.shadowRoot.children) {
+          if (child instanceof Element) {
+            const childNode = collectNode(child, depth, true);
+            if (childNode) children.push(childNode);
+          }
+        }
+      }
+
+      // 处理普通子元素
+      for (const child of el.children) {
+        const childNode = collectNode(child, depth, true);
+        if (childNode) children.push(childNode);
+      }
+
+      // 如果有子节点，返回一个虚拟的透传节点
+      if (children.length > 0) {
+        return {
+          element: el,
+          tag,
+          interactive: false,
+          isLandmark: false,
+          isTextTag: false,
+          text: '',
+          depth,
+          children,
+        };
+      }
+      return null;
     }
 
-    // 语义容器：输出（用于结构分组）
-    if (isLandmark) {
-      return { output: true, interactive: false, text: '', isLandmark: true, isTextTag: false };
+    // 收集子节点
+    const children: InternalNode[] = [];
+    const childInsideInteractive = insideInteractive || interactive;
+
+    // 处理 Shadow DOM
+    if (el.shadowRoot) {
+      for (const child of el.shadowRoot.children) {
+        if (child instanceof Element) {
+          const childNode = collectNode(child, depth + 1, childInsideInteractive);
+          if (childNode) children.push(childNode);
+        }
+      }
     }
 
-    // 有意义的文本标签：输出
-    if (isTextTag && directText.length > 0) {
-      return { output: true, interactive: false, text: directText, isLandmark: false, isTextTag: true };
+    // 处理普通子元素
+    for (const child of el.children) {
+      const childNode = collectNode(child, depth + 1, childInsideInteractive);
+      if (childNode) children.push(childNode);
     }
 
-    return { output: false, interactive: false, text: directText, isLandmark: false, isTextTag: false };
+    // 决定是否需要输出当前节点
+    const hasChildren = children.length > 0;
+    const needsOutput = interactive || (isTextTag && directText.length > 0) || (isLandmark && hasChildren);
+
+    if (needsOutput) {
+      return {
+        element: el,
+        tag,
+        interactive,
+        isLandmark,
+        isTextTag,
+        text: directText,
+        depth,
+        children,
+      };
+    } else if (hasChildren) {
+      // 当前节点不需要输出，但有子节点需要输出
+      // 创建一个"透传"节点，不会被分配索引
+      return {
+        element: el,
+        tag,
+        interactive: false,
+        isLandmark: false,
+        isTextTag: false,
+        text: '',
+        depth,
+        children,
+      };
+    }
+
+    return null;
   }
 
   /**
    * 格式化单个节点为紧凑字符串
    */
-  function formatCompactNode(
-    el: Element,
-    tag: string,
+  function formatNode(
+    node: InternalNode,
     nodeIndex: number,
-    text: string,
-    interactive: boolean,
-    isLandmark: boolean,
-    depth: number
+    outputDepth: number
   ): string {
-    const indent = '  '.repeat(depth);
+    const { element: el, tag, interactive, isLandmark, text } = node;
+    const indent = '  '.repeat(outputDepth);
     const parts: string[] = [];
 
     // 索引和标签
@@ -673,7 +858,7 @@ function buildCompactDomTree(options: CompactDomTreeOptions = {}): string {
     if (!isLandmark) {
       const displayText = interactive ? getAccessibleName(el) : text;
       if (displayText) {
-        parts.push(`"${displayText.replace(/"/g, '\\"')}"`);
+        parts.push(`"${displayText.replace(/"/g, '\\"').slice(0, 60)}"`);
       }
     }
 
@@ -708,9 +893,9 @@ function buildCompactDomTree(options: CompactDomTreeOptions = {}): string {
         parts.push(`selected="${selectedOption.text.slice(0, 20)}"`);
       }
       // 列出所有选项（最多5个）
-      const options = Array.from(selectEl.options).slice(0, 5).map(o => o.text.slice(0, 15));
-      if (options.length > 0) {
-        parts.push(`options=[${options.join('|')}]`);
+      const selectOptions = Array.from(selectEl.options).slice(0, 5).map(o => o.text.slice(0, 15));
+      if (selectOptions.length > 0) {
+        parts.push(`options=[${selectOptions.join('|')}]`);
       }
     }
 
@@ -733,6 +918,24 @@ function buildCompactDomTree(options: CompactDomTreeOptions = {}): string {
         } catch {
           parts.push(`→ ${href.slice(0, 50)}`);
         }
+      }
+    }
+
+    // video/audio 元素
+    if (tag === 'video' || tag === 'audio') {
+      const src = el.getAttribute('src');
+      if (src) {
+        const shortSrc = src.length > 30 ? '...' + src.slice(-27) : src;
+        parts.push(`src="${shortSrc}"`);
+      }
+      if (tag === 'video') {
+        const videoEl = el as HTMLVideoElement;
+        if (videoEl.duration && !isNaN(videoEl.duration)) {
+          const mins = Math.floor(videoEl.duration / 60);
+          const secs = Math.floor(videoEl.duration % 60);
+          parts.push(`duration=${mins}:${secs.toString().padStart(2, '0')}`);
+        }
+        if (videoEl.paused) parts.push('[paused]');
       }
     }
 
@@ -776,99 +979,65 @@ function buildCompactDomTree(options: CompactDomTreeOptions = {}): string {
   }
 
   /**
-   * 递归处理节点，返回此节点的输出行
-   * @param el 当前元素
-   * @param depth 当前深度
-   * @param insideInteractive 是否在可交互元素内部（用于避免重复输出文本）
+   * 第二阶段：遍历内部树，按顺序分配索引并生成输出
    */
-  function processNode(el: Element, depth: number, insideInteractive: boolean = false): string[] {
-    if (depth > maxDepth) return [];
-
-    const tag = el.tagName.toLowerCase();
-
-    // 跳过排除的标签
-    if (excludeSet.has(tag)) return [];
-
-    // 跳过遮罩层元素
-    if (el.id === 'agents-cc-overlay') return [];
-
-    // 检查可见性
-    if (!isVisible(el)) return [];
-
+  function generateOutput(node: InternalNode, outputDepth: number): { lines: string[]; index: number; interactiveCount: number; textCount: number } {
+    let index = 0;
+    let interactiveCount = 0;
+    let textCount = 0;
     const lines: string[] = [];
-    const { output: shouldOutput, interactive, text: directText, isLandmark, isTextTag } = shouldOutputNode(el);
 
-    // 如果在可交互元素内部，跳过纯文本子元素（避免重复）
-    if (insideInteractive && !interactive && !isLandmark) {
-      // 仍然递归处理子元素（可能有嵌套的可交互元素）
-      for (const child of el.children) {
-        lines.push(...processNode(child, depth, true));
-      }
-      return lines;
-    }
+    function traverse(n: InternalNode, depth: number): void {
+      const needsIndex = n.interactive || n.isLandmark || n.isTextTag;
 
-    // 收集子节点的输出
-    const childLines: string[] = [];
-    const childInsideInteractive = insideInteractive || interactive;
+      if (needsIndex) {
+        const currentIndex = index++;
 
-    // 处理 Shadow DOM
-    if (el.shadowRoot) {
-      for (const child of el.shadowRoot.children) {
-        if (child instanceof Element) {
-          childLines.push(...processNode(child, depth + 1, childInsideInteractive));
+        // 存储索引映射
+        elementIndexMap.set(currentIndex, n.element);
+
+        // 给元素添加 data-agent-index 属性
+        (n.element as HTMLElement).dataset.agentIndex = String(currentIndex);
+
+        if (n.interactive) interactiveCount++;
+        if (n.isTextTag) textCount++;
+
+        // 格式化当前节点
+        lines.push(formatNode(n, currentIndex, depth));
+
+        // 递归处理子节点
+        for (const child of n.children) {
+          traverse(child, depth + 1);
+        }
+      } else {
+        // 透传节点：不输出自身，但处理子节点（保持深度不变）
+        for (const child of n.children) {
+          traverse(child, depth);
         }
       }
     }
 
-    // 处理普通子元素
-    for (const child of el.children) {
-      childLines.push(...processNode(child, depth + 1, childInsideInteractive));
-    }
-
-    // 决定是否输出当前节点
-    // 只有以下情况才输出：
-    // 1. 可交互元素
-    // 2. 语义容器（landmark）且有子节点需要输出
-    // 3. 有意义的文本标签
-    const hasChildren = childLines.length > 0;
-    const needsOutput = interactive || isTextTag || (isLandmark && hasChildren);
-
-    if (needsOutput) {
-      const currentIndex = index++;
-
-      // 存储索引映射
-      elementIndexMap.set(currentIndex, el);
-
-      // 给元素添加 data-agent-index 属性，用于后续通过选择器查找
-      // 这样即使 React/Vue 重新渲染，我们也能通过属性找到正确的元素
-      (el as HTMLElement).dataset.agentIndex = String(currentIndex);
-
-      if (interactive) interactiveCount++;
-      if (isTextTag) textCount++;
-
-      // 格式化当前节点
-      lines.push(formatCompactNode(el, tag, currentIndex, directText, interactive, isLandmark, depth));
-
-      // 添加子节点输出
-      lines.push(...childLines);
-    } else if (hasChildren) {
-      // 当前节点不需要输出，但有子节点需要输出，直接返回子节点
-      lines.push(...childLines);
-    }
-
-    return lines;
+    traverse(node, outputDepth);
+    return { lines, index, interactiveCount, textCount };
   }
 
-  // 开始遍历
-  const lines = processNode(root, 0);
+  // 第一阶段：收集节点
+  const rootNode = collectNode(root, 0);
+
+  if (!rootNode) {
+    return `# DOM Tree (0 elements)\n\nNo interactive elements found${selector ? ` in selector: ${selector}` : ''}`;
+  }
+
+  // 第二阶段：生成输出
+  const result = generateOutput(rootNode, 0);
 
   // 构建输出头
   const header = [
     `# DOM Tree`,
-    `# ${index} elements, ${interactiveCount} interactive, ${textCount} text`,
+    `# ${result.index} elements, ${result.interactiveCount} interactive, ${result.textCount} text`,
   ].join('\n');
 
-  return header + '\n\n' + lines.join('\n');
+  return header + '\n\n' + result.lines.join('\n');
 }
 
 /**

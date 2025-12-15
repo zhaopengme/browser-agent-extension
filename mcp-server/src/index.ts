@@ -15,10 +15,14 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { WebSocketServer, WebSocket } from 'ws';
 
-const WS_PORT = 3026;
+const WS_PORT = process.env.BROWSER_AGENT_WS_PORT ? parseInt(process.env.BROWSER_AGENT_WS_PORT) : 3026;
+const HEARTBEAT_INTERVAL = 30000; // 30秒心跳间隔
+const HEARTBEAT_TIMEOUT = 10000;  // 10秒心跳超时
 
 // 存储当前连接的扩展客户端
 let extensionClient: WebSocket | null = null;
+let heartbeatTimer: NodeJS.Timeout | null = null;
+let wssInstance: WebSocketServer | null = null;
 
 // 请求ID计数器
 let requestIdCounter = 0;
@@ -31,11 +35,59 @@ const pendingRequests = new Map<string, {
 }>();
 
 /**
+ * 清理所有待处理的请求（连接断开时调用）
+ */
+function clearPendingRequests(reason: string): void {
+  for (const [id, pending] of pendingRequests) {
+    clearTimeout(pending.timeout);
+    pending.reject(new Error(`Request cancelled: ${reason}`));
+  }
+  pendingRequests.clear();
+}
+
+/**
+ * 启动心跳检测
+ */
+function startHeartbeat(ws: WebSocket): void {
+  stopHeartbeat();
+
+  heartbeatTimer = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.ping();
+
+      // 设置超时检测
+      const pongTimeout = setTimeout(() => {
+        console.error('[MCP Server] Heartbeat timeout, closing connection');
+        ws.terminate();
+      }, HEARTBEAT_TIMEOUT);
+
+      ws.once('pong', () => {
+        clearTimeout(pongTimeout);
+      });
+    }
+  }, HEARTBEAT_INTERVAL);
+}
+
+/**
+ * 停止心跳检测
+ */
+function stopHeartbeat(): void {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+}
+
+/**
  * 发送请求到浏览器扩展
  */
 async function sendToExtension(action: string, params?: Record<string, unknown>): Promise<unknown> {
   if (!extensionClient || extensionClient.readyState !== WebSocket.OPEN) {
-    throw new Error('Browser extension not connected. Please open the extension side panel.');
+    throw new Error(
+      'Browser extension not connected. ' +
+      'Please ask the user to: 1) Open Chrome browser, 2) Click the Browser Agent extension icon, 3) Open the Side Panel. ' +
+      'You can use browser_get_connection_status to check connection state.'
+    );
   }
 
   const id = `req_${++requestIdCounter}`;
@@ -63,6 +115,19 @@ async function sendToExtension(action: string, params?: Record<string, unknown>)
  * 定义 MCP 工具
  */
 const TOOLS: Tool[] = [
+  // ========== 连接状态 ==========
+  {
+    name: 'browser_get_connection_status',
+    description: `Check if the browser extension is connected to the MCP server.
+
+Use this tool FIRST before performing any browser operations to verify the extension is ready.
+If not connected, inform the user to open the browser extension side panel.`,
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+
   // ========== 页面控制锁定 ==========
   {
     name: 'browser_lock',
@@ -651,10 +716,14 @@ function getActionFromToolName(toolName: string): string {
  */
 function startWebSocketServer(): WebSocketServer {
   const wss = new WebSocketServer({ host: '0.0.0.0', port: WS_PORT });
+  wssInstance = wss;
 
   wss.on('connection', (ws) => {
     console.error(`[MCP Server] Browser extension connected`);
     extensionClient = ws;
+
+    // 启动心跳检测
+    startHeartbeat(ws);
 
     ws.on('message', (data) => {
       try {
@@ -680,8 +749,11 @@ function startWebSocketServer(): WebSocketServer {
 
     ws.on('close', () => {
       console.error(`[MCP Server] Browser extension disconnected`);
+      stopHeartbeat();
       if (extensionClient === ws) {
         extensionClient = null;
+        // 清理所有待处理的请求
+        clearPendingRequests('Browser extension disconnected');
       }
     });
 
@@ -698,9 +770,48 @@ function startWebSocketServer(): WebSocketServer {
 }
 
 /**
+ * 优雅关闭
+ */
+function gracefulShutdown(signal: string): void {
+  console.error(`[MCP Server] Received ${signal}, shutting down gracefully...`);
+
+  // 停止心跳
+  stopHeartbeat();
+
+  // 清理待处理请求
+  clearPendingRequests('Server shutting down');
+
+  // 关闭 WebSocket 连接
+  if (extensionClient) {
+    extensionClient.close(1000, 'Server shutting down');
+    extensionClient = null;
+  }
+
+  // 关闭 WebSocket 服务器
+  if (wssInstance) {
+    wssInstance.close(() => {
+      console.error('[MCP Server] WebSocket server closed');
+      process.exit(0);
+    });
+  } else {
+    process.exit(0);
+  }
+
+  // 强制退出超时
+  setTimeout(() => {
+    console.error('[MCP Server] Force exit after timeout');
+    process.exit(1);
+  }, 5000);
+}
+
+/**
  * 主函数
  */
 async function main(): Promise<void> {
+  // 注册信号处理
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
   // 启动 WebSocket 服务器
   startWebSocketServer();
 
@@ -725,6 +836,24 @@ async function main(): Promise<void> {
   // 处理工具调用请求
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
+
+    // 特殊处理连接状态检查（不需要实际连接扩展）
+    if (name === 'browser_get_connection_status') {
+      const isConnected = extensionClient !== null && extensionClient.readyState === WebSocket.OPEN;
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              connected: isConnected,
+              message: isConnected
+                ? 'Browser extension is connected and ready.'
+                : 'Browser extension is not connected. Please ask the user to open the Browser Agent extension side panel in Chrome.',
+            }, null, 2),
+          },
+        ],
+      };
+    }
 
     try {
       const action = getActionFromToolName(name);
