@@ -133,14 +133,15 @@ If not connected, inform the user to open the browser extension side panel.`,
     name: 'browser_lock',
     description: `Lock the browser page to prevent user interaction during automation.
 
-IMPORTANT: You MUST call browser_lock BEFORE performing any browser operations (navigate, click, type, etc.) and call browser_unlock AFTER all operations are complete.
+Use this when performing multi-step operations where user interference could cause issues.
+Displays a visual overlay with a status message, blocking all user input.
 
-Recommended workflow:
-1. Call browser_lock first (with optional status message)
-2. Perform all your browser operations (navigate, click, type, screenshot, etc.)
-3. Call browser_unlock when done
+Recommended workflow for complex automations:
+1. browser_lock (with status message like "Automating...")
+2. Perform your operations (navigate, click, type, etc.)
+3. browser_unlock when done
 
-This displays a blue glowing overlay on the page with a status message, blocking all user input to prevent interference with automation.`,
+For simple single operations (just reading page info, taking a screenshot), locking is optional.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -179,7 +180,9 @@ This hides the overlay and re-enables all user input.`,
   // ========== 基础导航和交互 ==========
   {
     name: 'browser_navigate',
-    description: 'Navigate to a URL in the browser. Remember to call browser_lock before and browser_unlock after.',
+    description: `Navigate to a URL in the browser.
+
+TIP: Consider calling browser_lock before navigation if you want to prevent user interference during a multi-step automation sequence.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -225,19 +228,31 @@ For contenteditable elements (rich text editors like Vditor), always use index p
   },
   {
     name: 'browser_scroll',
-    description: 'Scroll the page in a direction or to an element',
+    description: `Scroll the page in a direction or to a specific element.
+
+Usage modes:
+- Direction scroll: Use 'direction' + optional 'distance' (default ~500px) to scroll the viewport
+- Element scroll: Use 'selector' to scroll until the element is in view
+
+Examples:
+- { direction: "down", distance: 300 } - scroll down 300px
+- { selector: "#footer" } - scroll to the footer element`,
     inputSchema: {
       type: 'object',
       properties: {
         direction: { type: 'string', enum: ['up', 'down', 'left', 'right'], description: 'Direction to scroll' },
-        distance: { type: 'number', description: 'Distance to scroll in pixels' },
-        selector: { type: 'string', description: 'CSS selector of element to scroll to' },
+        distance: { type: 'number', description: 'Distance to scroll in pixels (default: ~500)' },
+        selector: { type: 'string', description: 'CSS selector of element to scroll into view' },
       },
     },
   },
   {
     name: 'browser_screenshot',
-    description: 'Take a screenshot of the current page',
+    description: `Take a screenshot of the current page.
+
+📷 SECONDARY OPTION: Use this when browser_get_dom_tree doesn't provide enough information (e.g., visual layout verification, seeing non-interactive content, debugging visual issues).
+
+For most automation tasks, prefer browser_get_dom_tree as it's more token-efficient and provides structured data.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -248,7 +263,12 @@ For contenteditable elements (rich text editors like Vditor), always use index p
   },
   {
     name: 'browser_extract',
-    description: 'Extract text and HTML content from an element',
+    description: `Extract text and HTML content from an element.
+
+Returns: { text: string, html: string, innerText: string }
+- text: The textContent of the element
+- html: The outerHTML of the element
+- innerText: The rendered text (respects CSS visibility)`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -259,11 +279,20 @@ For contenteditable elements (rich text editors like Vditor), always use index p
   },
   {
     name: 'browser_evaluate',
-    description: 'Execute JavaScript code in the page context',
+    description: `Execute JavaScript code in the page context.
+
+Returns the result of the expression. For complex return values, use JSON.stringify() in your script.
+
+Examples:
+- "document.title" - returns the page title
+- "window.scrollY" - returns current scroll position
+- "document.querySelectorAll('a').length" - returns link count
+
+Note: The script runs in the page's context, so you have access to the page's DOM and JS variables.`,
     inputSchema: {
       type: 'object',
       properties: {
-        script: { type: 'string', description: 'JavaScript code to execute' },
+        script: { type: 'string', description: 'JavaScript code to execute (expression or statement)' },
       },
       required: ['script'],
     },
@@ -279,6 +308,8 @@ For contenteditable elements (rich text editors like Vditor), always use index p
   {
     name: 'browser_get_dom_tree',
     description: `Get a compact, token-efficient DOM tree of the current page.
+
+⭐ RECOMMENDED: This is the PRIMARY tool for getting page information. Use this FIRST before considering browser_screenshot or browser_get_dom_tree_full.
 
 Returns ONLY interactive elements (buttons, links, inputs, etc.) grouped by semantic regions.
 Each element includes a bounding box for understanding layout.
@@ -325,15 +356,18 @@ Example: browser_click({ index: 3 }) clicks the "Submit" button.`,
     name: 'browser_get_dom_tree_full',
     description: `Get the complete DOM tree in full JSON format.
 
+⚠️ LAST RESORT: Only use this when browser_get_dom_tree AND browser_screenshot both fail to provide the needed information. This tool consumes significantly more tokens.
+
 Returns a structured tree of visible DOM elements including:
 - Element tag name, id, className
 - Text content (truncated to 200 chars)
 - Bounding rect (x, y, width, height)
 - Important attributes (href, src, alt, title, placeholder, type, name, value, role, aria-label)
 
-WARNING: This returns a large JSON structure that may consume many tokens.
-Use browser_get_dom_tree (compact format) for most use cases.
-Only use this when you need precise bounding rectangles or full attribute data.`,
+Priority order for getting page information:
+1. browser_get_dom_tree (FIRST CHOICE - compact, token-efficient)
+2. browser_screenshot (SECOND CHOICE - for visual verification)
+3. browser_get_dom_tree_full (LAST RESORT - only when debugging or need full attribute data)`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -346,7 +380,10 @@ Only use this when you need precise bounding rectangles or full attribute data.`
   },
   {
     name: 'browser_get_tabs',
-    description: 'Get list of all open browser tabs',
+    description: `Get list of all open browser tabs.
+
+Returns an array of tab objects with: { id, title, url, active, windowId }
+Use the 'id' value with browser_switch_tab to switch to a specific tab.`,
     inputSchema: {
       type: 'object',
       properties: {},
@@ -435,7 +472,10 @@ Example workflow:
   // ========== 网络请求捕获 ==========
   {
     name: 'browser_enable_network',
-    description: 'Enable network request capturing to monitor XHR, Fetch, and other network requests',
+    description: `Enable network request capturing to monitor XHR, Fetch, and other network requests.
+
+IMPORTANT: You must call this BEFORE the requests you want to capture are made.
+After enabling, use browser_get_network_requests or browser_get_network_requests_with_response to retrieve captured data.`,
     inputSchema: {
       type: 'object',
       properties: {},
@@ -451,7 +491,12 @@ Example workflow:
   },
   {
     name: 'browser_get_network_requests',
-    description: 'Get captured network requests with optional filtering',
+    description: `Get captured network requests (headers only, no response body).
+
+Returns request metadata: URL, method, status, headers, timing.
+For response body content, use browser_get_network_requests_with_response instead.
+
+Requires: browser_enable_network must be called first.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -473,11 +518,17 @@ Example workflow:
   },
   {
     name: 'browser_get_network_requests_with_response',
-    description: 'Get captured network requests with response body included. This calls Network.getResponseBody for each request to fetch the actual response content. Use this when you need to inspect API response data or debug network issues.',
+    description: `Get captured network requests WITH response body included.
+
+Use this to inspect API responses, JSON data, or debug network issues.
+Note: This is slower than browser_get_network_requests as it fetches each response body.
+
+Requires: browser_enable_network must be called first.
+TIP: Use urlPattern filter to limit results and improve performance.`,
     inputSchema: {
       type: 'object',
       properties: {
-        urlPattern: { type: 'string', description: 'Regex pattern to filter requests by URL' },
+        urlPattern: { type: 'string', description: 'Regex pattern to filter requests by URL (recommended for performance)' },
         method: { type: 'string', description: 'HTTP method to filter (GET, POST, etc.)' },
         statusCode: { type: 'number', description: 'Status code to filter' },
         resourceType: { type: 'string', description: 'Resource type (XHR, Fetch, Document, etc.)' },
@@ -487,12 +538,20 @@ Example workflow:
   },
   {
     name: 'browser_wait_for_response',
-    description: 'Wait for a network response matching the URL pattern',
+    description: `Wait for a network response matching the URL pattern.
+
+Useful for waiting for API calls to complete after triggering an action (click, submit, etc.).
+Returns the matched response data including body.
+
+Requires: browser_enable_network must be called first.
+
+Example: After clicking a submit button, wait for the API response:
+  browser_wait_for_response({ urlPattern: "/api/submit", timeout: 10000 })`,
     inputSchema: {
       type: 'object',
       properties: {
         urlPattern: { type: 'string', description: 'Regex pattern to match request URL' },
-        method: { type: 'string', description: 'HTTP method to match' },
+        method: { type: 'string', description: 'HTTP method to match (optional)' },
         timeout: { type: 'number', description: 'Timeout in milliseconds (default: 30000)' },
       },
       required: ['urlPattern'],
@@ -634,7 +693,9 @@ Example workflow:
   // ========== 高级鼠标操作 ==========
   {
     name: 'browser_hover',
-    description: 'Hover over an element',
+    description: `Hover over an element to trigger hover effects (tooltips, dropdown menus, etc.).
+
+Note: Only supports CSS selector. For index-based interaction, use browser_click which supports the 'index' parameter.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -645,7 +706,9 @@ Example workflow:
   },
   {
     name: 'browser_double_click',
-    description: 'Double-click on an element',
+    description: `Double-click on an element (e.g., to select a word or trigger double-click actions).
+
+Note: Only supports CSS selector. For index-based interaction, consider using browser_click twice with the 'index' parameter.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -656,7 +719,9 @@ Example workflow:
   },
   {
     name: 'browser_right_click',
-    description: 'Right-click (context menu click) on an element',
+    description: `Right-click on an element to open context menu.
+
+Note: Only supports CSS selector. The context menu that appears is the browser's native menu or a custom one defined by the page.`,
     inputSchema: {
       type: 'object',
       properties: {
