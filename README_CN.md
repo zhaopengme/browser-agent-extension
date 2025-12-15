@@ -26,7 +26,7 @@ Apache License 2.0 协议开源
 
 **方式 B：手动安装**
 
-1. 下载 [browser-agent-extension-v1.0.2.zip](https://github.com/agents-cc/browser-agent-extension/releases/download/v1.0.2/browser-agent-extension-v1.0.2.zip)
+1. 下载 [browser-agent-extension-v1.0.3.zip](https://github.com/agents-cc/browser-agent-extension/releases/download/v1.0.3/browser-agent-extension-v1.0.3.zip)
 2. 解压到任意文件夹
 3. 打开 Chrome，访问 `chrome://extensions/`
 4. 开启「开发者模式」

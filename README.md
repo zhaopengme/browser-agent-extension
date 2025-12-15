@@ -26,7 +26,7 @@ Search for "Browser Agent Extension" in the Chrome Web Store and install.
 
 **Option B: Manual Installation**
 
-1. Download [browser-agent-extension-v1.0.2.zip](https://github.com/agents-cc/browser-agent-extension/releases/download/v1.0.2/browser-agent-extension-v1.0.2.zip)
+1. Download [browser-agent-extension-v1.0.3.zip](https://github.com/agents-cc/browser-agent-extension/releases/download/v1.0.3/browser-agent-extension-v1.0.3.zip)
 2. Extract to any folder
 3. Open Chrome and go to `chrome://extensions/`
 4. Enable "Developer mode"

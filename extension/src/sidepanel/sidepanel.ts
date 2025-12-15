@@ -69,6 +69,7 @@ const panels = document.querySelectorAll('.panel') as NodeListOf<HTMLDivElement>
 // DOM 元素 - 设置
 const inputHost = document.getElementById('inputHost') as HTMLInputElement;
 const inputPort = document.getElementById('inputPort') as HTMLInputElement;
+const versionText = document.getElementById('versionText') as HTMLSpanElement;
 
 let ws: WebSocket | null = null;
 let reconnectTimer: number | null = null;
@@ -327,6 +328,9 @@ tabs.forEach(tab => {
 btnClear.addEventListener('click', clearLogs);
 btnReconnect.addEventListener('click', manualReconnect);
 btnDisconnect.addEventListener('click', disconnect);
+
+// 显示版本号
+versionText.textContent = chrome.runtime.getManifest().version;
 
 // 初始化设置
 initSettings();
