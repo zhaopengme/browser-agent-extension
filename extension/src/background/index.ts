@@ -10,6 +10,7 @@ interface MCPRequest {
   id: string;
   action: string;
   params?: Record<string, unknown>;
+  tabId?: number; // NEW: Optional tab ID for session-specific operations
 }
 
 interface MCPResponse {
@@ -58,11 +59,11 @@ async function initialize(): Promise<void> {
  * 处理 MCP 请求
  */
 async function handleMCPRequest(request: MCPRequest): Promise<MCPResponse> {
-  const { action, params } = request;
-  console.log(`[Background] MCP Request: ${action}`, params);
+  const { action, params, tabId } = request;
+  console.log(`[Background] MCP Request: ${action}`, params, tabId ? `(tab: ${tabId})` : '');
 
   try {
-    const result = await executeAction(action, params || {});
+    const result = await executeAction(action, params || {}, tabId);
     return { success: true, data: result };
   } catch (error) {
     console.error(`[Background] Action error:`, error);
@@ -76,29 +77,31 @@ async function handleMCPRequest(request: MCPRequest): Promise<MCPResponse> {
 /**
  * 执行操作
  */
-async function executeAction(action: string, params: Record<string, unknown>): Promise<unknown> {
+async function executeAction(action: string, params: Record<string, unknown>, tabId?: number): Promise<unknown> {
   // 锁定/解锁操作不需要获取 page
   switch (action) {
     case 'lock': {
       const status = (params.status as string) || 'Agent is controlling this page';
-      await showOverlay(status);
+      await showOverlay(status, tabId);
       return { locked: true, status };
     }
 
     case 'unlock': {
-      await hideOverlay();
+      await hideOverlay(tabId);
       return { unlocked: true };
     }
 
     case 'update_status': {
       const status = params.status as string;
       if (!status) throw new Error('status is required');
-      await updateOverlayStatus(status, params.shimmer as boolean);
+      await updateOverlayStatus(status, params.shimmer as boolean, tabId);
       return { updated: true, status };
     }
   }
 
-  const page = await browserContext.getActivePage();
+  const page = tabId
+    ? await browserContext.getPage(tabId)
+    : await browserContext.getActivePage();
 
   switch (action) {
     case 'navigate': {
@@ -127,7 +130,7 @@ async function executeAction(action: string, params: Record<string, unknown>): P
     case 'click': {
       // 支持通过索引点击
       if (params.index !== undefined) {
-        const result = await clickByIndex(params.index as number);
+        const result = await clickByIndex(params.index as number, tabId);
         return result;
       } else if (params.selector) {
         const result = await page.clickElement(params.selector as string);
@@ -151,7 +154,8 @@ async function executeAction(action: string, params: Record<string, unknown>): P
         const result = await typeByIndex(
           params.index as number,
           text,
-          params.clearFirst as boolean
+          params.clearFirst as boolean,
+          tabId
         );
         return { typed: true, length: text.length, ...result };
       } else if (params.selector) {
@@ -163,7 +167,7 @@ async function executeAction(action: string, params: Record<string, unknown>): P
         return { typed: true, length: text.length };
       } else {
         // 没有指定 index 或 selector，尝试在当前聚焦元素中输入
-        const result = await typeInFocused(text, params.clearFirst as boolean);
+        const result = await typeInFocused(text, params.clearFirst as boolean, tabId);
         return { typed: true, length: text.length, ...result };
       }
     }
@@ -229,26 +233,26 @@ async function executeAction(action: string, params: Record<string, unknown>): P
 
     case 'get_dom_tree': {
       // 新版：紧凑格式 DOM 树
-      const domTree = await getDomTree(params);
+      const domTree = await getDomTree(params, tabId);
       return domTree;
     }
 
     case 'get_dom_tree_full': {
       // 完整版：JSON 格式 DOM 树
       const selector = params.selector as string | undefined;
-      const domTree = await getDomTreeFull(selector);
+      const domTree = await getDomTreeFull(selector, tabId);
       return domTree;
     }
 
     case 'get_dom_tree_structured': {
       // 树状结构版：包含所有可见元素
-      const domTree = await getDomTreeStructured(params);
+      const domTree = await getDomTreeStructured(params, tabId);
       return domTree;
     }
 
     case 'get_dom_tree_aria': {
       // ARIA 树格式（最紧凑，参考 Playwright MCP）
-      const ariaTree = await getDomTreeAria(params);
+      const ariaTree = await getDomTreeAria(params, tabId);
       return ariaTree;
     }
 
@@ -275,7 +279,8 @@ async function executeAction(action: string, params: Record<string, unknown>): P
       // 移除元素焦点
       const result = await blurElement(
         params.index as number | undefined,
-        params.selector as string | undefined
+        params.selector as string | undefined,
+        tabId
       );
       return result;
     }
@@ -511,7 +516,7 @@ async function executeAction(action: string, params: Record<string, unknown>): P
     }
 
     case 'download': {
-      const result = await downloadResource(params);
+      const result = await downloadResource(params, tabId);
       return result;
     }
 
@@ -523,11 +528,15 @@ async function executeAction(action: string, params: Record<string, unknown>): P
 /**
  * 显示操作遮罩层
  */
-async function showOverlay(status: string): Promise<void> {
+async function showOverlay(status: string, tabId?: number): Promise<void> {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab?.id) {
-      await chrome.tabs.sendMessage(tab.id, {
+    let targetTabId = tabId;
+    if (!targetTabId) {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      targetTabId = tab?.id;
+    }
+    if (targetTabId) {
+      await chrome.tabs.sendMessage(targetTabId, {
         type: 'SHOW_OVERLAY',
         payload: { status },
       });
@@ -540,11 +549,15 @@ async function showOverlay(status: string): Promise<void> {
 /**
  * 隐藏操作遮罩层
  */
-async function hideOverlay(): Promise<void> {
+async function hideOverlay(tabId?: number): Promise<void> {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab?.id) {
-      await chrome.tabs.sendMessage(tab.id, { type: 'HIDE_OVERLAY' });
+    let targetTabId = tabId;
+    if (!targetTabId) {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      targetTabId = tab?.id;
+    }
+    if (targetTabId) {
+      await chrome.tabs.sendMessage(targetTabId, { type: 'HIDE_OVERLAY' });
     }
   } catch {
     // 忽略错误
@@ -554,11 +567,15 @@ async function hideOverlay(): Promise<void> {
 /**
  * 更新遮罩层状态文本
  */
-async function updateOverlayStatus(status: string, shimmer?: boolean): Promise<void> {
+async function updateOverlayStatus(status: string, shimmer?: boolean, tabId?: number): Promise<void> {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab?.id) {
-      await chrome.tabs.sendMessage(tab.id, {
+    let targetTabId = tabId;
+    if (!targetTabId) {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      targetTabId = tab?.id;
+    }
+    if (targetTabId) {
+      await chrome.tabs.sendMessage(targetTabId, {
         type: 'UPDATE_OVERLAY_STATUS',
         payload: { status, shimmer },
       });
@@ -571,16 +588,20 @@ async function updateOverlayStatus(status: string, shimmer?: boolean): Promise<v
 /**
  * 通过索引点击元素
  */
-async function clickByIndex(index: number): Promise<{ clicked: boolean; tagName?: string; text?: string }> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) {
+async function clickByIndex(index: number, tabId?: number): Promise<{ clicked: boolean; tagName?: string; text?: string }> {
+  let targetTabId = tabId;
+  if (!targetTabId) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    targetTabId = tab?.id;
+  }
+  if (!targetTabId) {
     throw new Error('No active tab found');
   }
 
   // 确保 content script 已注入
-  await ensureContentScriptInjected(tab.id);
+  await ensureContentScriptInjected(targetTabId);
 
-  const response = await chrome.tabs.sendMessage(tab.id, {
+  const response = await chrome.tabs.sendMessage(targetTabId, {
     type: 'CLICK_BY_INDEX',
     payload: { index },
   });
@@ -602,17 +623,22 @@ async function clickByIndex(index: number): Promise<{ clicked: boolean; tagName?
 async function typeByIndex(
   index: number,
   text: string,
-  clearFirst?: boolean
+  clearFirst?: boolean,
+  tabId?: number
 ): Promise<{ tagName?: string }> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) {
+  let targetTabId = tabId;
+  if (!targetTabId) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    targetTabId = tab?.id;
+  }
+  if (!targetTabId) {
     throw new Error('No active tab found');
   }
 
   // 确保 content script 已注入
-  await ensureContentScriptInjected(tab.id);
+  await ensureContentScriptInjected(targetTabId);
 
-  const response = await chrome.tabs.sendMessage(tab.id, {
+  const response = await chrome.tabs.sendMessage(targetTabId, {
     type: 'TYPE_BY_INDEX',
     payload: { index, text, clearFirst },
   });
@@ -631,17 +657,22 @@ async function typeByIndex(
  */
 async function typeInFocused(
   text: string,
-  clearFirst?: boolean
+  clearFirst?: boolean,
+  tabId?: number
 ): Promise<{ tagName?: string }> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) {
+  let targetTabId = tabId;
+  if (!targetTabId) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    targetTabId = tab?.id;
+  }
+  if (!targetTabId) {
     throw new Error('No active tab found');
   }
 
   // 确保 content script 已注入
-  await ensureContentScriptInjected(tab.id);
+  await ensureContentScriptInjected(targetTabId);
 
-  const response = await chrome.tabs.sendMessage(tab.id, {
+  const response = await chrome.tabs.sendMessage(targetTabId, {
     type: 'TYPE_IN_FOCUSED',
     payload: { text, clearFirst },
   });
@@ -660,17 +691,22 @@ async function typeInFocused(
  */
 async function blurElement(
   index?: number,
-  selector?: string
+  selector?: string,
+  tabId?: number
 ): Promise<{ blurred: boolean; tagName?: string }> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) {
+  let targetTabId = tabId;
+  if (!targetTabId) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    targetTabId = tab?.id;
+  }
+  if (!targetTabId) {
     throw new Error('No active tab found');
   }
 
   // 确保 content script 已注入
-  await ensureContentScriptInjected(tab.id);
+  await ensureContentScriptInjected(targetTabId);
 
-  const response = await chrome.tabs.sendMessage(tab.id, {
+  const response = await chrome.tabs.sendMessage(targetTabId, {
     type: 'BLUR_ELEMENT',
     payload: { index, selector },
   });
@@ -749,16 +785,20 @@ function generateDownloadFilename(url: string, mimeType?: string): string {
 /**
  * 通过索引获取资源 URL（通过 content script）
  */
-async function getResourceUrlByIndex(index: number): Promise<string> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) {
+async function getResourceUrlByIndex(index: number, tabId?: number): Promise<string> {
+  let targetTabId = tabId;
+  if (!targetTabId) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    targetTabId = tab?.id;
+  }
+  if (!targetTabId) {
     throw new Error('No active tab found');
   }
 
   // 确保 content script 已注入
-  await ensureContentScriptInjected(tab.id);
+  await ensureContentScriptInjected(targetTabId);
 
-  const response = await chrome.tabs.sendMessage(tab.id, {
+  const response = await chrome.tabs.sendMessage(targetTabId, {
     type: 'GET_RESOURCE_URL_BY_INDEX',
     payload: { index },
   });
@@ -773,16 +813,20 @@ async function getResourceUrlByIndex(index: number): Promise<string> {
 /**
  * 在页面上下文中获取资源（通过 content script）
  */
-async function fetchResourceInPageContext(url: string): Promise<{ url: string; blob: Blob }> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) {
+async function fetchResourceInPageContext(url: string, tabId?: number): Promise<{ url: string; blob: Blob }> {
+  let targetTabId = tabId;
+  if (!targetTabId) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    targetTabId = tab?.id;
+  }
+  if (!targetTabId) {
     throw new Error('No active tab found');
   }
 
   // 确保 content script 已注入
-  await ensureContentScriptInjected(tab.id);
+  await ensureContentScriptInjected(targetTabId);
 
-  const response = await chrome.tabs.sendMessage(tab.id, {
+  const response = await chrome.tabs.sendMessage(targetTabId, {
     type: 'FETCH_RESOURCE',
     payload: { url },
   });
@@ -807,7 +851,7 @@ async function fetchResourceInPageContext(url: string): Promise<{ url: string; b
 /**
  * 下载资源的主要函数
  */
-async function downloadResource(params: Record<string, unknown>): Promise<{ downloaded: boolean; filename: string; downloadId?: number }> {
+async function downloadResource(params: Record<string, unknown>, tabId?: number): Promise<{ downloaded: boolean; filename: string; downloadId?: number }> {
   const { url: directUrl, index, selector } = params;
 
   let downloadUrl: string;
@@ -819,8 +863,8 @@ async function downloadResource(params: Record<string, unknown>): Promise<{ down
     filename = generateDownloadFilename(downloadUrl);
   } else if (index !== undefined) {
     // 通过索引获取 URL，使用页面上下文获取
-    const resourceUrl = await getResourceUrlByIndex(index as number);
-    const { url, blob } = await fetchResourceInPageContext(resourceUrl);
+    const resourceUrl = await getResourceUrlByIndex(index as number, tabId);
+    const { url, blob } = await fetchResourceInPageContext(resourceUrl, tabId);
 
     // 创建本地 blob URL 用于下载
     downloadUrl = URL.createObjectURL(blob);
@@ -903,16 +947,20 @@ async function ensureContentScriptInjected(tabId: number): Promise<void> {
 /**
  * 获取页面 DOM 树（紧凑格式）
  */
-async function getDomTree(params: Record<string, unknown>): Promise<unknown> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) {
+async function getDomTree(params: Record<string, unknown>, tabId?: number): Promise<unknown> {
+  let targetTabId = tabId;
+  if (!targetTabId) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    targetTabId = tab?.id;
+  }
+  if (!targetTabId) {
     throw new Error('No active tab found');
   }
 
   // 确保 content script 已注入
-  await ensureContentScriptInjected(tab.id);
+  await ensureContentScriptInjected(targetTabId);
 
-  const response = await chrome.tabs.sendMessage(tab.id, {
+  const response = await chrome.tabs.sendMessage(targetTabId, {
     type: 'GET_DOM_TREE',
     payload: params,
   });
@@ -927,16 +975,20 @@ async function getDomTree(params: Record<string, unknown>): Promise<unknown> {
 /**
  * 获取页面 DOM 树（完整 JSON 格式）
  */
-async function getDomTreeFull(selector?: string): Promise<unknown> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) {
+async function getDomTreeFull(selector?: string, tabId?: number): Promise<unknown> {
+  let targetTabId = tabId;
+  if (!targetTabId) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    targetTabId = tab?.id;
+  }
+  if (!targetTabId) {
     throw new Error('No active tab found');
   }
 
   // 确保 content script 已注入
-  await ensureContentScriptInjected(tab.id);
+  await ensureContentScriptInjected(targetTabId);
 
-  const response = await chrome.tabs.sendMessage(tab.id, {
+  const response = await chrome.tabs.sendMessage(targetTabId, {
     type: 'GET_DOM_TREE_FULL',
     payload: { selector },
   });
@@ -951,16 +1003,20 @@ async function getDomTreeFull(selector?: string): Promise<unknown> {
 /**
  * 获取页面 DOM 树（树状结构，包含所有可见元素）
  */
-async function getDomTreeStructured(params: Record<string, unknown>): Promise<unknown> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) {
+async function getDomTreeStructured(params: Record<string, unknown>, tabId?: number): Promise<unknown> {
+  let targetTabId = tabId;
+  if (!targetTabId) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    targetTabId = tab?.id;
+  }
+  if (!targetTabId) {
     throw new Error('No active tab found');
   }
 
   // 确保 content script 已注入
-  await ensureContentScriptInjected(tab.id);
+  await ensureContentScriptInjected(targetTabId);
 
-  const response = await chrome.tabs.sendMessage(tab.id, {
+  const response = await chrome.tabs.sendMessage(targetTabId, {
     type: 'GET_DOM_TREE_STRUCTURED',
     payload: params,
   });
@@ -975,16 +1031,20 @@ async function getDomTreeStructured(params: Record<string, unknown>): Promise<un
 /**
  * 获取页面 ARIA 树（最紧凑格式，参考 Playwright MCP）
  */
-async function getDomTreeAria(params: Record<string, unknown>): Promise<unknown> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) {
+async function getDomTreeAria(params: Record<string, unknown>, tabId?: number): Promise<unknown> {
+  let targetTabId = tabId;
+  if (!targetTabId) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    targetTabId = tab?.id;
+  }
+  if (!targetTabId) {
     throw new Error('No active tab found');
   }
 
   // 确保 content script 已注入
-  await ensureContentScriptInjected(tab.id);
+  await ensureContentScriptInjected(targetTabId);
 
-  const response = await chrome.tabs.sendMessage(tab.id, {
+  const response = await chrome.tabs.sendMessage(targetTabId, {
     type: 'GET_DOM_TREE_ARIA',
     payload: params,
   });

@@ -38,6 +38,7 @@ function getWsUrl(): string {
 interface WSRequest {
   type: 'REQUEST';
   id: string;
+  sessionId?: string; // NEW: Session identifier for multi-client support
   action: string;
   params?: Record<string, unknown>;
 }
@@ -45,11 +46,29 @@ interface WSRequest {
 interface WSResponse {
   type: 'RESPONSE';
   id: string;
+  sessionId?: string; // NEW: Echo back session identifier
   payload: {
     success: boolean;
     data?: unknown;
     error?: string;
   };
+}
+
+interface SessionBinding {
+  sessionId: string;
+  tabId: number;
+  createdAt: number;
+  lastActiveAt: number;
+}
+
+interface SessionStartMessage {
+  type: 'SESSION_START';
+  sessionId: string;
+}
+
+interface SessionEndMessage {
+  type: 'SESSION_END';
+  sessionId: string;
 }
 
 // DOM 元素 - 工具栏
@@ -75,6 +94,9 @@ let ws: WebSocket | null = null;
 let reconnectTimer: number | null = null;
 let retryCount = 0;
 
+// Session-to-tab bindings for multi-client support
+const sessionBindings = new Map<string, SessionBinding>();
+
 /**
  * 切换标签页
  */
@@ -86,6 +108,97 @@ function switchTab(targetPanel: string): void {
   panels.forEach(panel => {
     panel.classList.toggle('active', panel.id === `panel${targetPanel.charAt(0).toUpperCase() + targetPanel.slice(1)}`);
   });
+}
+
+/**
+ * 获取或创建会话对应的标签页
+ */
+async function getOrCreateTabForSession(sessionId: string): Promise<number> {
+  let binding = sessionBindings.get(sessionId);
+
+  if (!binding) {
+    // 为此会话创建新标签页
+    const tab = await chrome.tabs.create({ active: false });
+    if (!tab.id) {
+      throw new Error('Failed to create tab for session');
+    }
+
+    binding = {
+      sessionId,
+      tabId: tab.id,
+      createdAt: Date.now(),
+      lastActiveAt: Date.now()
+    };
+    sessionBindings.set(sessionId, binding);
+
+    addLog('session', `Session ${sessionId.slice(0, 8)} bound to tab ${tab.id}`, 'success');
+
+    // 通知服务器会话已启动
+    sendSessionStart(sessionId);
+  } else {
+    // 更新最后活跃时间
+    binding.lastActiveAt = Date.now();
+
+    // 验证标签页是否仍然存在
+    try {
+      await chrome.tabs.get(binding.tabId);
+    } catch {
+      // 标签页已关闭，创建新的
+      const tab = await chrome.tabs.create({ active: false });
+      if (!tab.id) {
+        throw new Error('Failed to recreate tab for session');
+      }
+      binding.tabId = tab.id;
+      addLog('session', `Session ${sessionId.slice(0, 8)} rebound to new tab ${tab.id}`, 'success');
+    }
+  }
+
+  return binding.tabId;
+}
+
+/**
+ * 发送会话启动消息到服务器
+ */
+function sendSessionStart(sessionId: string): void {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    const message: SessionStartMessage = {
+      type: 'SESSION_START',
+      sessionId
+    };
+    ws.send(JSON.stringify(message));
+  }
+}
+
+/**
+ * 发送会话结束消息到服务器
+ */
+function sendSessionEnd(sessionId: string): void {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    const message: SessionEndMessage = {
+      type: 'SESSION_END',
+      sessionId
+    };
+    ws.send(JSON.stringify(message));
+  }
+}
+
+/**
+ * 清理会话绑定
+ */
+async function cleanupSession(sessionId: string, closeTab: boolean = false): Promise<void> {
+  const binding = sessionBindings.get(sessionId);
+  if (binding) {
+    if (closeTab) {
+      try {
+        await chrome.tabs.remove(binding.tabId);
+        addLog('session', `Closed tab ${binding.tabId} for session ${sessionId.slice(0, 8)}`, 'success');
+      } catch (error) {
+        console.error('[SidePanel] Failed to close tab:', error);
+      }
+    }
+    sessionBindings.delete(sessionId);
+    addLog('session', `Session ${sessionId.slice(0, 8)} cleaned up`, 'success');
+  }
 }
 
 /**
@@ -192,32 +305,71 @@ function connect(): void {
 
     ws.onmessage = async (event) => {
       try {
-        const message = JSON.parse(event.data) as WSRequest;
+        const message = JSON.parse(event.data);
 
+        // 处理 SESSION_END 消息
+        if (message.type === 'SESSION_END') {
+          const sessionId = message.sessionId;
+          if (sessionId) {
+            addLog('session', `Received SESSION_END for ${sessionId.slice(0, 8)}`, 'pending');
+            await cleanupSession(sessionId, true); // 关闭标签页
+          }
+          return;
+        }
+
+        // 处理 REQUEST 消息
         if (message.type === 'REQUEST') {
-          addLog(message.action, JSON.stringify(message.params || {}).slice(0, 100));
+          const request = message as WSRequest;
+          const sessionId = request.sessionId;
+
+          addLog(request.action, JSON.stringify(request.params || {}).slice(0, 100));
+
+          let tabId: number | undefined;
+
+          // 如果有 sessionId，获取或创建对应的标签页
+          if (sessionId) {
+            try {
+              tabId = await getOrCreateTabForSession(sessionId);
+            } catch (error) {
+              console.error('[SidePanel] Failed to get/create tab for session:', error);
+              const errorResponse: WSResponse = {
+                type: 'RESPONSE',
+                id: request.id,
+                sessionId: sessionId,
+                payload: {
+                  success: false,
+                  error: `Failed to get/create tab for session: ${error instanceof Error ? error.message : 'Unknown error'}`
+                }
+              };
+              ws?.send(JSON.stringify(errorResponse));
+              addLog(request.action, 'session tab error', 'error');
+              return;
+            }
+          }
 
           // 转发请求到 Service Worker
           const response = await chrome.runtime.sendMessage({
             type: 'MCP_REQUEST',
-            id: message.id,
-            action: message.action,
-            params: message.params,
+            id: request.id,
+            action: request.action,
+            params: request.params,
+            tabId: tabId, // 传递 tabId 以便在特定标签页执行操作
           });
 
-          // 发送响应回 MCP Server
+          // 发送响应回 MCP Server，回显 sessionId
           const wsResponse: WSResponse = {
             type: 'RESPONSE',
-            id: message.id,
+            id: request.id,
+            sessionId: sessionId, // Echo back sessionId
             payload: response,
           };
 
           ws?.send(JSON.stringify(wsResponse));
 
           if (response.success) {
-            addLog(message.action, 'completed', 'success');
+            addLog(request.action, 'completed', 'success');
           } else {
-            addLog(message.action, response.error || 'failed', 'error');
+            addLog(request.action, response.error || 'failed', 'error');
           }
         }
       } catch (error) {
