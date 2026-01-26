@@ -67,7 +67,7 @@ let idleTimer: NodeJS.Timeout | null = null;
  * Generate a random session ID
  */
 function generateSessionId(): string {
-  return 'sess_' + crypto.randomBytes(4).toString('hex');
+  return 'sess_' + crypto.randomBytes(16).toString('hex');
 }
 
 /**

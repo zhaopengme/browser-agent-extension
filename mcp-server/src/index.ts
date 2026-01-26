@@ -29,6 +29,7 @@ const HEARTBEAT_INTERVAL = 30000; // 30秒心跳间隔
 const HEARTBEAT_TIMEOUT = 10000;  // 10秒心跳超时
 const DAEMON_SOCKET_PATH = '/tmp/browser-agent-daemon.sock';
 const DAEMON_STARTUP_TIMEOUT = 5000; // 5秒等待 daemon 启动
+const DAEMON_LOCK_PATH = '/tmp/browser-agent-daemon.lock';
 
 // Daemon 模式状态
 let useDaemon = false;
@@ -92,6 +93,34 @@ async function isDaemonRunning(): Promise<boolean> {
 }
 
 /**
+ * 获取 daemon 启动锁
+ */
+async function acquireDaemonLock(): Promise<boolean> {
+  try {
+    const fd = fs.openSync(DAEMON_LOCK_PATH, 'wx');
+    fs.writeSync(fd, process.pid.toString());
+    fs.closeSync(fd);
+    return true;
+  } catch (error: any) {
+    if (error.code === 'EEXIST') {
+      return false; // Another process is spawning daemon
+    }
+    throw error;
+  }
+}
+
+/**
+ * 释放 daemon 启动锁
+ */
+function releaseDaemonLock(): void {
+  try {
+    fs.unlinkSync(DAEMON_LOCK_PATH);
+  } catch {
+    // Ignore errors
+  }
+}
+
+/**
  * 启动 daemon 进程
  */
 function spawnDaemon(): void {
@@ -137,12 +166,30 @@ async function connectToDaemon(): Promise<boolean> {
     // 检查 daemon 是否运行
     if (!(await isDaemonRunning())) {
       console.error('[MCP Server] Daemon not running, attempting to spawn...');
-      spawnDaemon();
 
-      // 等待 daemon 启动
-      if (!(await waitForDaemon())) {
-        console.error('[MCP Server] Daemon failed to start within timeout');
-        return false;
+      if (await acquireDaemonLock()) {
+        try {
+          spawnDaemon();
+
+          // 等待 daemon 启动
+          if (!(await waitForDaemon())) {
+            console.error('[MCP Server] Daemon failed to start within timeout');
+            releaseDaemonLock();
+            return false;
+          }
+
+          // Release lock after daemon is running
+          releaseDaemonLock();
+        } catch (error) {
+          releaseDaemonLock();
+          throw error;
+        }
+      } else {
+        console.error('[MCP Server] Another process is spawning daemon, waiting...');
+        if (!(await waitForDaemon())) {
+          console.error('[MCP Server] Daemon failed to start');
+          return false;
+        }
       }
     }
 

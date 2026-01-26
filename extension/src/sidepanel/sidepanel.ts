@@ -654,11 +654,11 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 });
 
 // 监听标签页关闭
-chrome.tabs.onRemoved.addListener((tabId) => {
+chrome.tabs.onRemoved.addListener(async (tabId) => {
   // 查找并清理对应的会话
   for (const [sessionId, binding] of sessionBindings.entries()) {
     if (binding.tabId === tabId) {
-      cleanupSession(sessionId, false);
+      await cleanupSession(sessionId, false);
       sendSessionEnd(sessionId);
       break;
     }
