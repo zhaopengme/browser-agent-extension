@@ -6,6 +6,8 @@
 
 ## 整体架构
 
+### 单客户端模式（传统模式）
+
 ```
 ┌────────────────────────────────────────────────────────────────────────────┐
 │                    AI 客户端 (Claude Desktop / Cursor / 其他)               │
@@ -49,6 +51,61 @@
                                  Chrome Browser
 ```
 
+### 多客户端模式（Daemon 架构）
+
+```
+┌──────────────────────┐      ┌──────────────────────┐      ┌──────────────────────┐
+│  Claude Desktop      │      │      Cursor          │      │   Other MCP Client   │
+│  (MCP Client #1)     │      │   (MCP Client #2)    │      │   (MCP Client #3)    │
+└──────────┬───────────┘      └──────────┬───────────┘      └──────────┬───────────┘
+           │ stdio                       │ stdio                       │ stdio
+           ▼                             ▼                             ▼
+┌──────────────────────┐      ┌──────────────────────┐      ┌──────────────────────┐
+│  MCP Server #1       │      │   MCP Server #2      │      │   MCP Server #3      │
+│  (Session: sess_1)   │      │  (Session: sess_2)   │      │  (Session: sess_3)   │
+└──────────┬───────────┘      └──────────┬───────────┘      └──────────┬───────────┘
+           │ Unix Socket                │ Unix Socket                │ Unix Socket
+           └────────┬───────────────────┴────────┬───────────────────┴────────┘
+                    ▼                         ▼
+           ┌─────────────────────────────────────────────┐
+           │           Browser Agent Daemon              │
+           │  - Unix Socket Server (/tmp/...sock)        │
+           │  - Session Management & Routing             │
+           │  - WebSocket Client (连接 Extension)        │
+           │  - Auto-exit after 60s idle                 │
+           └──────────────────┬──────────────────────────┘
+                              │ WebSocket
+                              ▼
+           ┌─────────────────────────────────────────────┐
+           │           Chrome Extension                  │
+           │  ┌───────────────────────────────────────┐  │
+           │  │  Side Panel                          │  │
+           │  │  - Session List UI                   │  │
+           │  │  - Session-to-Tab Binding            │  │
+           │  │  - Request Routing                   │  │
+           │  └───────────────┬───────────────────────┘  │
+           │                  │ chrome.runtime.sendMessage│
+           │  ┌───────────────▼───────────────────────┐  │
+           │  │  Service Worker                      │  │
+           │  │  - Multi-tab Management              │  │
+           │  │  - Per-tab Operations                │  │
+           │  └───────────────┬───────────────────────┘  │
+           └──────────────────┴──────────────────────────┘
+                              │
+                              ▼
+                       Chrome Browser (Multiple Tabs)
+                ┌──────────┬──────────┬──────────┐
+                │  Tab #1  │  Tab #2  │  Tab #3  │
+                │ (sess_1) │ (sess_2) │ (sess_3) │
+                └──────────┴──────────┴──────────┘
+```
+
+**多客户端模式特点：**
+- 多个 MCP 客户端可以同时连接，每个客户端获得独立会话
+- 每个会话绑定到独立的浏览器标签页
+- Daemon 自动启动，无活跃会话时自动退出
+- 完全向后兼容单客户端模式
+
 ---
 
 ## 核心组件
@@ -58,7 +115,8 @@
 **职责：**
 - 实现 MCP 协议，提供标准化的工具接口
 - 通过 stdio 与 AI 客户端通信 (JSON-RPC 2.0)
-- 通过 WebSocket 与浏览器扩展通信
+- 自动检测并连接 Daemon（多客户端模式）
+- 回退到直接 WebSocket 连接（单客户端模式）
 - 请求转发和响应路由
 
 **通信协议：**
@@ -66,23 +124,52 @@
 | 接口 | 协议 | 说明 |
 |------|------|------|
 | AI 客户端 | stdio (JSON-RPC 2.0) | MCP 标准协议 |
-| Chrome 扩展 | WebSocket (:3026) | 自定义消息协议 |
+| Daemon | Unix Socket | 多客户端模式 |
+| Chrome 扩展 | WebSocket (:3026) | 单客户端回退模式 |
+
+### 1.5. Browser Agent Daemon（多客户端支持）
+
+**职责：**
+- 管理多个 MCP 客户端会话
+- Unix Socket 服务器接受 MCP Server 连接
+- WebSocket 客户端连接浏览器扩展
+- 会话注册和请求路由
+- 自动启动和生命周期管理
+
+**会话管理：**
+- 每个 MCP Server 连接获得唯一 sessionId
+- 请求携带 sessionId 路由到对应标签页
+- 无活跃会话时 60 秒后自动退出
+
+**通信协议：**
+
+| 接口 | 协议 | 说明 |
+|------|------|------|
+| MCP Server | Unix Socket (/tmp/browser-agent-daemon.sock) | 会话注册和请求 |
+| Chrome 扩展 | WebSocket (:3026) | 请求转发 |
 
 ### 2. Chrome Extension - Side Panel
 
 **职责：**
 - 维持 WebSocket 连接（仅在打开时）
 - 显示任务执行状态和日志
+- 管理会话到标签页的绑定
+- 显示活跃会话列表和状态
 - 转发请求到 Service Worker
 - 提供用户界面
 
 **生命周期：**
 
-| 状态 | Side Panel | WebSocket |
-|------|-----------|-----------|
-| 用户打开 | 运行 | 连接 |
-| 用户关闭 | 停止 | 断开 |
-| 切换标签 | 保持 | 保持 |
+| 状态 | Side Panel | WebSocket | 会话管理 |
+|------|-----------|-----------|---------|
+| 用户打开 | 运行 | 连接 | 启用 |
+| 用户关闭 | 停止 | 断开 | 清理 |
+| 切换标签 | 保持 | 保持 | 保持 |
+
+**会话功能：**
+- 自动为每个 sessionId 创建独立标签页
+- 实时显示会话状态和最后活跃时间
+- 支持聚焦和关闭会话标签页
 
 ### 3. Chrome Extension - Service Worker
 
@@ -133,13 +220,31 @@
 
 ## 消息协议
 
-### WebSocket 消息格式
+### Daemon 消息格式
 
-**请求 (MCP Server → Extension):**
+**REGISTER (MCP Server → Daemon):**
+```json
+{
+  "type": "REGISTER",
+  "id": "reg_123"
+}
+```
+
+**REGISTER_OK (Daemon → MCP Server):**
+```json
+{
+  "type": "REGISTER_OK",
+  "id": "reg_123",
+  "sessionId": "sess_a1b2c3d4"
+}
+```
+
+**REQUEST (MCP Server → Daemon):**
 ```json
 {
   "type": "REQUEST",
-  "id": "req_123",
+  "id": "req_456",
+  "sessionId": "sess_a1b2c3d4",
   "action": "navigate",
   "params": {
     "url": "https://example.com"
@@ -147,11 +252,56 @@
 }
 ```
 
-**响应 (Extension → MCP Server):**
+**RESPONSE (Daemon → MCP Server):**
+```json
+{
+  "type": "RESPONSE",
+  "id": "req_456",
+  "sessionId": "sess_a1b2c3d4",
+  "payload": {
+    "success": true,
+    "data": { "url": "https://example.com" }
+  }
+}
+```
+
+**SESSION_START (Daemon → Extension):**
+```json
+{
+  "type": "SESSION_START",
+  "sessionId": "sess_a1b2c3d4"
+}
+```
+
+**SESSION_END (Daemon → Extension / Extension → Daemon):**
+```json
+{
+  "type": "SESSION_END",
+  "sessionId": "sess_a1b2c3d4"
+}
+```
+
+### WebSocket 消息格式
+
+**请求 (MCP Server/Daemon → Extension):**
+```json
+{
+  "type": "REQUEST",
+  "id": "req_123",
+  "sessionId": "sess_a1b2c3d4",
+  "action": "navigate",
+  "params": {
+    "url": "https://example.com"
+  }
+}
+```
+
+**响应 (Extension → MCP Server/Daemon):**
 ```json
 {
   "type": "RESPONSE",
   "id": "req_123",
+  "sessionId": "sess_a1b2c3d4",
   "payload": {
     "success": true,
     "data": { "url": "https://example.com", "title": "Example" }
@@ -186,7 +336,7 @@ browser-agent-extension/
 │   │   │
 │   │   ├── sidepanel/            # Side Panel
 │   │   │   ├── index.html        # 页面
-│   │   │   └── sidepanel.ts      # WebSocket + UI
+│   │   │   └── sidepanel.ts      # WebSocket + 会话管理 + UI
 │   │   │
 │   │   ├── cdp/                  # CDP 封装层
 │   │   │   ├── transport.ts      # ExtensionTransport
@@ -204,7 +354,8 @@ browser-agent-extension/
 │
 └── mcp-server/                   # TypeScript MCP Server
     ├── src/
-    │   └── index.ts              # 入口 + MCP 工具定义 + WebSocket
+    │   ├── index.ts              # 入口 + MCP 工具定义 + Daemon 连接
+    │   └── daemon.ts             # Daemon 进程（多客户端支持）
     ├── package.json
     └── tsconfig.json
 ```
@@ -275,14 +426,18 @@ browser-agent-extension/
 
 ## 端口配置
 
-| 服务 | 端口 | 说明 |
-|------|------|------|
-| MCP Server WebSocket | 3026 | 扩展连接 |
+| 服务 | 端口/路径 | 说明 |
+|------|----------|------|
+| MCP Server WebSocket | 3026 | 扩展连接（单客户端回退模式） |
+| Daemon Unix Socket | /tmp/browser-agent-daemon.sock | MCP Server 连接（多客户端模式） |
+| Daemon WebSocket | 3026 | 扩展连接（多客户端模式） |
 
 ---
 
 ## 安全考虑
 
 1. **WebSocket** - 仅监听 127.0.0.1
-2. **扩展权限** - debugger, tabs, sidePanel, activeTab, scripting
-3. **MCP** - stdio 通信，无网络暴露
+2. **Unix Socket** - 权限设置为 0600（仅所有者可访问）
+3. **扩展权限** - debugger, tabs, sidePanel, activeTab, scripting
+4. **MCP** - stdio 通信，无网络暴露
+5. **Daemon** - 自动退出机制防止僵尸进程
