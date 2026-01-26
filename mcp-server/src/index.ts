@@ -736,12 +736,13 @@ Note: Only supports CSS selector. The context menu that appears is the browser's
     name: 'browser_download',
     description: `Download a page resource (image, video, audio, file) to local.
 
-Supports three ways to specify the resource:
+Supports two ways to specify the resource:
 1. By element index (recommended): Use the index from browser_get_dom_tree output
-2. By CSS selector: Locate the media element with a CSS selector
-3. By URL: Direct download from a URL
+2. By URL: Direct download from a URL
 
-For resources on the current page (index/selector), uses page context fetch to bypass anti-hotlinking.
+Note: CSS selector support is not yet implemented.
+
+For resources on the current page (index), uses page context fetch to bypass anti-hotlinking.
 Files are saved to Chrome's default download directory with timestamp-based filenames.
 
 Example workflow:
@@ -754,7 +755,7 @@ Returns: { success: true, filename: "1706284800123.png", downloadId: 42 }`,
       properties: {
         url: { type: 'string', description: 'Resource URL for direct download' },
         index: { type: 'number', description: 'Element index from browser_get_dom_tree output (recommended)' },
-        selector: { type: 'string', description: 'CSS selector to locate the media element' },
+        selector: { type: 'string', description: 'CSS selector to locate the media element (NOT YET IMPLEMENTED)' },
       },
     },
   },

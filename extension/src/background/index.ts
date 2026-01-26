@@ -767,7 +767,7 @@ async function getResourceUrlByIndex(index: number): Promise<string> {
     throw new Error(response.error || 'Failed to get resource URL by index');
   }
 
-  return response.data.url;
+  return response.data;
 }
 
 /**
@@ -783,7 +783,7 @@ async function fetchResourceInPageContext(url: string): Promise<{ url: string; b
   await ensureContentScriptInjected(tab.id);
 
   const response = await chrome.tabs.sendMessage(tab.id, {
-    type: 'FETCH_RESOURCE_IN_PAGE_CONTEXT',
+    type: 'FETCH_RESOURCE',
     payload: { url },
   });
 
@@ -827,7 +827,7 @@ async function downloadResource(params: Record<string, unknown>): Promise<{ down
     filename = generateDownloadFilename(url, blob.type);
   } else if (selector) {
     // 通过选择器获取，暂时不支持
-    throw new Error('Download by selector not yet implemented');
+    throw new Error('Download by selector is not yet implemented. Please use index (from browser_get_dom_tree) or direct URL instead.');
   } else {
     throw new Error('Either url, index, or selector is required');
   }
