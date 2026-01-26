@@ -1,12 +1,12 @@
 /**
  * Content Script
- * 用于复杂 DOM 操作、Shadow DOM 访问和控制遮罩
+ * Handles complex DOM operations, Shadow DOM access, and control overlay
  */
 
 import type { ContentMessage, ContentResponse } from '@/types/message';
 
 // ============================================================================
-// Agent 控制遮罩层
+// Agent control overlay layer
 // ============================================================================
 
 interface OverlayState {
@@ -22,7 +22,7 @@ const overlayState: OverlayState = {
 };
 
 /**
- * 创建控制遮罩层的样式
+ * Create styles for the control overlay layer
  */
 function createOverlayStyles(): HTMLStyleElement {
   const style = document.createElement('style');
@@ -162,7 +162,7 @@ function createOverlayStyles(): HTMLStyleElement {
 }
 
 /**
- * 创建遮罩层 DOM 结构
+ * Create overlay DOM structure
  */
 function createOverlayElement(): HTMLDivElement {
   const overlay = document.createElement('div');
@@ -186,7 +186,7 @@ function createOverlayElement(): HTMLDivElement {
     </div>
   `;
 
-  // 阻止所有用户输入事件
+  // Block all user input events
   const blocker = overlay.querySelector('#agents-cc-overlay-blocker') as HTMLDivElement;
 
   const blockEvent = (e: Event) => {
@@ -196,17 +196,17 @@ function createOverlayElement(): HTMLDivElement {
     return false;
   };
 
-  // 阻止鼠标事件
+  // Block mouse events
   ['mousedown', 'mouseup', 'click', 'dblclick', 'contextmenu', 'wheel'].forEach(event => {
     blocker.addEventListener(event, blockEvent, true);
   });
 
-  // 阻止键盘事件（在 document 级别）
+  // Block keyboard events (at document level)
   const keyBlocker = (e: KeyboardEvent) => {
     if (overlayState.enabled) {
-      // 允许一些系统快捷键
+      // Allow some system shortcuts
       if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && e.key === 'I')) {
-        return; // 允许打开 DevTools
+        return; // Allow opening DevTools
       }
       e.preventDefault();
       e.stopPropagation();
@@ -221,27 +221,27 @@ function createOverlayElement(): HTMLDivElement {
 }
 
 /**
- * 初始化遮罩层
+ * Initialize the overlay
  */
 function initOverlay(): void {
-  // 检查是否已初始化
+  // Check if already initialized
   if (document.getElementById('agents-cc-overlay')) {
     return;
   }
 
-  // 添加样式
+  // Add styles
   const existingStyle = document.getElementById('agents-cc-overlay-styles');
   if (!existingStyle) {
     document.head.appendChild(createOverlayStyles());
   }
 
-  // 创建遮罩层
+  // Create overlay
   overlayState.element = createOverlayElement();
   document.body.appendChild(overlayState.element);
 }
 
 /**
- * 显示遮罩层
+ * Show the overlay
  */
 function showOverlay(status?: string): ContentResponse<boolean> {
   try {
@@ -266,7 +266,7 @@ function showOverlay(status?: string): ContentResponse<boolean> {
 }
 
 /**
- * 隐藏遮罩层
+ * Hide the overlay
  */
 function hideOverlay(): ContentResponse<boolean> {
   try {
@@ -285,7 +285,7 @@ function hideOverlay(): ContentResponse<boolean> {
 }
 
 /**
- * 更新遮罩层状态文本
+ * Update overlay status text
  */
 function updateOverlayStatus(status: string, shimmer: boolean = false): ContentResponse<boolean> {
   try {
@@ -313,7 +313,7 @@ function updateOverlayStatus(status: string, shimmer: boolean = false): ContentR
 }
 
 /**
- * 获取遮罩层状态
+ * Get overlay state
  */
 function getOverlayState(): ContentResponse<{ enabled: boolean; status: string }> {
   return {
@@ -326,13 +326,13 @@ function getOverlayState(): ContentResponse<{ enabled: boolean; status: string }
 }
 
 /**
- * 构建 DOM 树（带元素索引）- 完整版
+ * Build DOM tree with element indices - full version
  */
 function buildDomTree(): DOMTreeNode[] {
   let index = 0;
 
   function processNode(node: Element): DOMTreeNode | null {
-    // 跳过不可见元素
+    // Skip invisible elements
     const style = window.getComputedStyle(node);
     if (style.display === 'none' || style.visibility === 'hidden') {
       return null;
@@ -340,7 +340,7 @@ function buildDomTree(): DOMTreeNode[] {
 
     const rect = node.getBoundingClientRect();
 
-    // 跳过零尺寸元素
+    // Skip zero-sized elements
     if (rect.width === 0 && rect.height === 0) {
       return null;
     }
@@ -348,7 +348,7 @@ function buildDomTree(): DOMTreeNode[] {
     const currentIndex = index++;
     const children: DOMTreeNode[] = [];
 
-    // 处理 Shadow DOM
+    // Handle Shadow DOM
     if (node.shadowRoot) {
       for (const child of node.shadowRoot.children) {
         if (child instanceof Element) {
@@ -360,7 +360,7 @@ function buildDomTree(): DOMTreeNode[] {
       }
     }
 
-    // 处理普通子节点
+    // Handle regular child nodes
     for (const child of node.children) {
       const childNode = processNode(child);
       if (childNode) {
@@ -368,7 +368,7 @@ function buildDomTree(): DOMTreeNode[] {
       }
     }
 
-    // 获取文本内容（仅直接文本）
+    // Get text content (direct text only)
     let text = '';
     for (const child of node.childNodes) {
       if (child.nodeType === Node.TEXT_NODE) {
@@ -403,23 +403,23 @@ function buildDomTree(): DOMTreeNode[] {
 }
 
 // ============================================================================
-// 紧凑格式 DOM 树（参考 Playwright ARIA Snapshot）
+// Compact format DOM tree (reference: Playwright ARIA Snapshot)
 // ============================================================================
 
-// 元素索引到 DOM 元素的映射（用于 click/type 操作）
+// Element index to DOM element mapping (for click/type operations)
 let elementIndexMap: Map<number, Element> = new Map();
 
 /**
- * 可交互元素的标签列表
+ * List of interactive element tags
  */
 const INTERACTIVE_TAGS = new Set([
   'a', 'button', 'input', 'textarea', 'select', 'option',
   'details', 'summary', 'dialog', 'menu', 'menuitem',
-  'video', 'audio', // 媒体元素
+  'video', 'audio', // media elements
 ]);
 
 /**
- * 可交互的 role 属性
+ * Interactive role attributes
  */
 const INTERACTIVE_ROLES = new Set([
   'button', 'link', 'menuitem', 'menuitemcheckbox', 'menuitemradio',
@@ -741,7 +741,7 @@ function buildCompactDomTree(options: CompactDomTreeOptions = {}): string {
     if (insideInteractive && !interactive && !isLandmark) {
       const children: InternalNode[] = [];
 
-      // 处理 Shadow DOM
+      // Handle Shadow DOM
       if (el.shadowRoot) {
         for (const child of el.shadowRoot.children) {
           if (child instanceof Element) {
@@ -777,7 +777,7 @@ function buildCompactDomTree(options: CompactDomTreeOptions = {}): string {
     const children: InternalNode[] = [];
     const childInsideInteractive = insideInteractive || interactive;
 
-    // 处理 Shadow DOM
+    // Handle Shadow DOM
     if (el.shadowRoot) {
       for (const child of el.shadowRoot.children) {
         if (child instanceof Element) {
@@ -1626,9 +1626,14 @@ function getResourceUrlFromElement(element: Element): string | null {
 }
 
 /**
- * 通过索引获取资源URL
+ * Get resource URL by element index
  */
 function getResourceUrlByIndex(index: number): ContentResponse<string> {
+  // Input validation
+  if (!Number.isInteger(index) || index < 0) {
+    return { success: false, error: `Invalid index: ${index}. Index must be a non-negative integer.` };
+  }
+
   const element = getElementByIndex(index);
   if (!element) {
     return { success: false, error: `Element with index ${index} not found. Please refresh DOM tree first.` };
@@ -1639,19 +1644,34 @@ function getResourceUrlByIndex(index: number): ContentResponse<string> {
     return { success: false, error: `No resource URL found for element at index ${index}` };
   }
 
-  // 转换为绝对URL
+  // Convert to absolute URL
   try {
     const absoluteUrl = new URL(url, window.location.href).href;
     return { success: true, data: absoluteUrl };
   } catch (error) {
-    return { success: false, error: `Invalid URL: ${url}` };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : `Invalid URL: ${url}`
+    };
   }
 }
 
 /**
- * 在页面上下文中获取资源（绕过防盗链）
+ * Fetch resource in page context (bypassing anti-hotlinking)
  */
 async function fetchResourceInPageContext(url: string): Promise<ContentResponse<{ blob: string; contentType: string; size: number }>> {
+  // Input validation
+  if (!url || typeof url !== 'string') {
+    return { success: false, error: 'Invalid URL: URL must be a non-empty string' };
+  }
+
+  try {
+    // Validate URL format
+    new URL(url);
+  } catch {
+    return { success: false, error: `Invalid URL format: ${url}` };
+  }
+
   try {
     const response = await fetch(url, {
       credentials: 'include',
@@ -1667,19 +1687,35 @@ async function fetchResourceInPageContext(url: string): Promise<ContentResponse<
     const blob = await response.blob();
     const contentType = response.headers.get('content-type') || 'application/octet-stream';
 
-    // 将Blob转换为Base64字符串
+    // Convert Blob to Base64 string with proper error handling and cleanup
     const reader = new FileReader();
     const base64Promise = new Promise<string>((resolve, reject) => {
       reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          // 移除data:前缀，只保留base64数据
-          const base64 = reader.result.split(',')[1];
-          resolve(base64);
-        } else {
-          reject(new Error('Failed to convert blob to base64'));
+        try {
+          if (typeof reader.result === 'string') {
+            // Remove data: prefix and validate base64 format
+            const base64Parts = reader.result.split(',');
+            if (base64Parts.length !== 2) {
+              reject(new Error('Invalid base64 format'));
+              return;
+            }
+            const base64 = base64Parts[1];
+            resolve(base64);
+          } else {
+            reject(new Error('Failed to convert blob to base64'));
+          }
+        } finally {
+          // Clean up FileReader
+          reader.onloadend = null;
+          reader.onerror = null;
         }
       };
-      reader.onerror = reject;
+      reader.onerror = (error) => {
+        // Clean up FileReader on error
+        reader.onloadend = null;
+        reader.onerror = null;
+        reject(new Error('FileReader error: ' + (error.target?.error?.message || 'Unknown error')));
+      };
     });
 
     reader.readAsDataURL(blob);
@@ -1702,7 +1738,7 @@ async function fetchResourceInPageContext(url: string): Promise<ContentResponse<
 }
 
 /**
- * 消息处理器
+ * Message handler
  */
 chrome.runtime.onMessage.addListener(
   (message: ContentMessage, sender, sendResponse) => {
