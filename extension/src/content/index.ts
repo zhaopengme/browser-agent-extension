@@ -1590,6 +1590,118 @@ function executeScript(script: string): ContentResponse<unknown> {
 }
 
 /**
+ * 从元素中提取资源URL
+ */
+function getResourceUrlFromElement(element: Element): string | null {
+  const tag = element.tagName.toLowerCase();
+
+  switch (tag) {
+    case 'img':
+      return element.getAttribute('src') || element.getAttribute('data-src') || null;
+    case 'video':
+      return element.getAttribute('src') || element.getAttribute('data-src') ||
+             element.querySelector('source')?.getAttribute('src') || null;
+    case 'audio':
+      return element.getAttribute('src') || element.getAttribute('data-src') ||
+             element.querySelector('source')?.getAttribute('src') || null;
+    case 'a':
+      const href = element.getAttribute('href');
+      if (href && (href.match(/\.(jpg|jpeg|png|gif|webp|svg|mp4|mp3|wav|ogg|pdf|zip|rar)$/i) ||
+                   href.includes('download') || element.getAttribute('download'))) {
+        return href;
+      }
+      return null;
+    case 'source':
+      return element.getAttribute('src') || null;
+    default:
+      // 检查CSS背景图片
+      const style = window.getComputedStyle(element);
+      const bgImage = style.backgroundImage;
+      if (bgImage && bgImage !== 'none') {
+        const match = bgImage.match(/url\(['"]?(.*?)['"]?\)/);
+        return match ? match[1] : null;
+      }
+      return null;
+  }
+}
+
+/**
+ * 通过索引获取资源URL
+ */
+function getResourceUrlByIndex(index: number): ContentResponse<string> {
+  const element = getElementByIndex(index);
+  if (!element) {
+    return { success: false, error: `Element with index ${index} not found. Please refresh DOM tree first.` };
+  }
+
+  const url = getResourceUrlFromElement(element);
+  if (!url) {
+    return { success: false, error: `No resource URL found for element at index ${index}` };
+  }
+
+  // 转换为绝对URL
+  try {
+    const absoluteUrl = new URL(url, window.location.href).href;
+    return { success: true, data: absoluteUrl };
+  } catch (error) {
+    return { success: false, error: `Invalid URL: ${url}` };
+  }
+}
+
+/**
+ * 在页面上下文中获取资源（绕过防盗链）
+ */
+async function fetchResourceInPageContext(url: string): Promise<ContentResponse<{ blob: string; contentType: string; size: number }>> {
+  try {
+    const response = await fetch(url, {
+      credentials: 'include',
+      headers: {
+        'Referer': window.location.href,
+      },
+    });
+
+    if (!response.ok) {
+      return { success: false, error: `Failed to fetch resource: ${response.status} ${response.statusText}` };
+    }
+
+    const blob = await response.blob();
+    const contentType = response.headers.get('content-type') || 'application/octet-stream';
+
+    // 将Blob转换为Base64字符串
+    const reader = new FileReader();
+    const base64Promise = new Promise<string>((resolve, reject) => {
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          // 移除data:前缀，只保留base64数据
+          const base64 = reader.result.split(',')[1];
+          resolve(base64);
+        } else {
+          reject(new Error('Failed to convert blob to base64'));
+        }
+      };
+      reader.onerror = reject;
+    });
+
+    reader.readAsDataURL(blob);
+    const base64Data = await base64Promise;
+
+    return {
+      success: true,
+      data: {
+        blob: base64Data,
+        contentType,
+        size: blob.size,
+      },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to fetch resource',
+    };
+  }
+}
+
+/**
  * 消息处理器
  */
 chrome.runtime.onMessage.addListener(
@@ -1691,6 +1803,23 @@ chrome.runtime.onMessage.addListener(
       case 'GET_OVERLAY_STATE':
         response = getOverlayState();
         break;
+
+      // ========== 媒体下载功能 ==========
+      case 'GET_RESOURCE_URL_BY_INDEX':
+        response = getResourceUrlByIndex(message.payload.index);
+        break;
+
+      case 'FETCH_RESOURCE':
+        // 由于这是异步操作，需要特殊处理
+        fetchResourceInPageContext(message.payload.url).then(result => {
+          sendResponse(result);
+        }).catch(error => {
+          sendResponse({
+            success: false,
+            error: error instanceof Error ? error.message : 'Failed to fetch resource'
+          });
+        });
+        return true; // 表示异步响应
 
       default:
         // 对于未知消息类型，不响应，让其他监听器处理
