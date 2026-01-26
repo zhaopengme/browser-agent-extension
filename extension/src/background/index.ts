@@ -510,6 +510,11 @@ async function executeAction(action: string, params: Record<string, unknown>): P
       return { rightClicked: true, selector };
     }
 
+    case 'download': {
+      const result = await downloadResource(params);
+      return result;
+    }
+
     default:
       throw new Error(`Unknown action: ${action}`);
   }
@@ -678,6 +683,178 @@ async function blurElement(
     blurred: true,
     tagName: response.data?.tagName,
   };
+}
+
+/**
+ * 从 URL 中提取文件扩展名
+ */
+function getExtensionFromUrl(url: string): string {
+  try {
+    const urlPath = new URL(url).pathname;
+    const match = urlPath.match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
+    return match ? match[1].toLowerCase() : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * 从 MIME 类型映射到文件扩展名
+ */
+function getExtensionFromMimeType(mimeType: string): string {
+  const mimeToExt: Record<string, string> = {
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/png': 'png',
+    'image/gif': 'gif',
+    'image/webp': 'webp',
+    'image/svg+xml': 'svg',
+    'video/mp4': 'mp4',
+    'video/webm': 'webm',
+    'video/quicktime': 'mov',
+    'audio/mp3': 'mp3',
+    'audio/wav': 'wav',
+    'audio/ogg': 'ogg',
+    'application/pdf': 'pdf',
+    'text/plain': 'txt',
+    'text/html': 'html',
+    'application/json': 'json',
+  };
+
+  return mimeToExt[mimeType.toLowerCase()] || '';
+}
+
+/**
+ * 生成基于时间戳的下载文件名
+ */
+function generateDownloadFilename(url: string, mimeType?: string): string {
+  const timestamp = Date.now();
+
+  // 首先尝试从 URL 获取扩展名
+  let extension = getExtensionFromUrl(url);
+
+  // 如果 URL 没有扩展名，尝试从 MIME 类型获取
+  if (!extension && mimeType) {
+    extension = getExtensionFromMimeType(mimeType);
+  }
+
+  // 默认扩展名
+  if (!extension) {
+    extension = 'bin';
+  }
+
+  return `${timestamp}.${extension}`;
+}
+
+/**
+ * 通过索引获取资源 URL（通过 content script）
+ */
+async function getResourceUrlByIndex(index: number): Promise<string> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) {
+    throw new Error('No active tab found');
+  }
+
+  // 确保 content script 已注入
+  await ensureContentScriptInjected(tab.id);
+
+  const response = await chrome.tabs.sendMessage(tab.id, {
+    type: 'GET_RESOURCE_URL_BY_INDEX',
+    payload: { index },
+  });
+
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to get resource URL by index');
+  }
+
+  return response.data.url;
+}
+
+/**
+ * 在页面上下文中获取资源（通过 content script）
+ */
+async function fetchResourceInPageContext(url: string): Promise<{ url: string; blob: Blob }> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) {
+    throw new Error('No active tab found');
+  }
+
+  // 确保 content script 已注入
+  await ensureContentScriptInjected(tab.id);
+
+  const response = await chrome.tabs.sendMessage(tab.id, {
+    type: 'FETCH_RESOURCE_IN_PAGE_CONTEXT',
+    payload: { url },
+  });
+
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to fetch resource in page context');
+  }
+
+  // 将 base64 数据转换为 Blob
+  const { data, mimeType } = response.data;
+  const byteCharacters = atob(data);
+  const byteNumbers = new Array(byteCharacters.length);
+  for (let i = 0; i < byteCharacters.length; i++) {
+    byteNumbers[i] = byteCharacters.charCodeAt(i);
+  }
+  const byteArray = new Uint8Array(byteNumbers);
+  const blob = new Blob([byteArray], { type: mimeType });
+
+  return { url, blob };
+}
+
+/**
+ * 下载资源的主要函数
+ */
+async function downloadResource(params: Record<string, unknown>): Promise<{ downloaded: boolean; filename: string; downloadId?: number }> {
+  const { url: directUrl, index, selector } = params;
+
+  let downloadUrl: string;
+  let filename: string;
+
+  if (directUrl) {
+    // 直接 URL 下载
+    downloadUrl = directUrl as string;
+    filename = generateDownloadFilename(downloadUrl);
+  } else if (index !== undefined) {
+    // 通过索引获取 URL，使用页面上下文获取
+    const resourceUrl = await getResourceUrlByIndex(index as number);
+    const { url, blob } = await fetchResourceInPageContext(resourceUrl);
+
+    // 创建本地 blob URL 用于下载
+    downloadUrl = URL.createObjectURL(blob);
+    filename = generateDownloadFilename(url, blob.type);
+  } else if (selector) {
+    // 通过选择器获取，暂时不支持
+    throw new Error('Download by selector not yet implemented');
+  } else {
+    throw new Error('Either url, index, or selector is required');
+  }
+
+  return new Promise((resolve, reject) => {
+    chrome.downloads.download({
+      url: downloadUrl,
+      filename: filename,
+      saveAs: false,
+    }, (downloadId) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+
+      // 如果使用了 blob URL，清理它
+      if (downloadUrl.startsWith('blob:')) {
+        setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+      }
+
+      resolve({
+        downloaded: true,
+        filename,
+        downloadId,
+      });
+    });
+  });
 }
 
 /**
