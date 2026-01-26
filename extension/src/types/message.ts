@@ -26,7 +26,11 @@ export type ContentMessage =
   | { type: 'SHOW_OVERLAY'; payload?: { status?: string } }
   | { type: 'HIDE_OVERLAY'; payload?: undefined }
   | { type: 'UPDATE_OVERLAY_STATUS'; payload: { status: string; shimmer?: boolean } }
-  | { type: 'GET_OVERLAY_STATE'; payload?: undefined };
+  | { type: 'GET_OVERLAY_STATE'; payload?: undefined }
+  // 资源获取（用于页面上下文下载）
+  | { type: 'FETCH_RESOURCE'; payload: { url: string } }
+  // 通过索引获取资源 URL
+  | { type: 'GET_RESOURCE_URL_BY_INDEX'; payload: { index: number } };
 
 export type ContentResponse<T = unknown> =
   | { success: true; data: T }
