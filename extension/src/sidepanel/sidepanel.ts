@@ -77,6 +77,9 @@ const statusText = document.getElementById('statusText') as HTMLSpanElement;
 const btnReconnect = document.getElementById('btnReconnect') as HTMLButtonElement;
 const btnDisconnect = document.getElementById('btnDisconnect') as HTMLButtonElement;
 
+// DOM 元素 - 会话列表
+const sessionsList = document.getElementById('sessionsList') as HTMLDivElement;
+
 // DOM 元素 - 日志
 const logContainer = document.getElementById('logContainer') as HTMLDivElement;
 const btnClear = document.getElementById('btnClear') as HTMLButtonElement;
@@ -96,6 +99,144 @@ let retryCount = 0;
 
 // Session-to-tab bindings for multi-client support
 const sessionBindings = new Map<string, SessionBinding>();
+
+/**
+ * 格式化时间差为人类可读格式
+ */
+function formatTimeAgo(timestamp: number): string {
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+/**
+ * 获取标签页信息
+ */
+async function getTabInfo(tabId: number): Promise<{ title: string; url: string }> {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    const url = tab.url || '';
+    const hostname = url ? new URL(url).hostname : '';
+    return {
+      title: tab.title || 'Loading...',
+      url: hostname || url || 'about:blank'
+    };
+  } catch (error) {
+    console.error('[SidePanel] Failed to get tab info:', error);
+    return {
+      title: 'Tab closed',
+      url: ''
+    };
+  }
+}
+
+/**
+ * 渲染会话列表
+ */
+async function renderSessionsList(): Promise<void> {
+  if (sessionBindings.size === 0) {
+    sessionsList.innerHTML = '<div class="empty-sessions">No active sessions</div>';
+    return;
+  }
+
+  sessionsList.innerHTML = '';
+
+  for (const [sessionId, binding] of sessionBindings.entries()) {
+    const tabInfo = await getTabInfo(binding.tabId);
+    const timeAgo = formatTimeAgo(binding.lastActiveAt);
+    const shortSessionId = sessionId.slice(0, 12);
+
+    // 检查标签页是否仍然存在
+    let isConnected = false;
+    try {
+      await chrome.tabs.get(binding.tabId);
+      isConnected = true;
+    } catch {
+      isConnected = false;
+    }
+
+    const sessionItem = document.createElement('div');
+    sessionItem.className = 'session-item';
+    sessionItem.dataset.sessionId = sessionId;
+    sessionItem.dataset.tabId = String(binding.tabId);
+
+    sessionItem.innerHTML = `
+      <div class="session-header">
+        <span class="session-status ${isConnected ? 'connected' : 'disconnected'}"></span>
+        <span class="session-id">${shortSessionId}</span>
+        <span class="session-time">${timeAgo}</span>
+      </div>
+      <div class="session-tab">
+        <span class="tab-title">${tabInfo.url || tabInfo.title}</span>
+      </div>
+      <div class="session-actions">
+        <button class="focus-tab-btn">Focus</button>
+        <button class="close-tab-btn">Close</button>
+      </div>
+    `;
+
+    // 点击会话项聚焦标签页
+    sessionItem.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).tagName !== 'BUTTON') {
+        focusTab(binding.tabId);
+      }
+    });
+
+    // Focus 按钮
+    const focusBtn = sessionItem.querySelector('.focus-tab-btn') as HTMLButtonElement;
+    focusBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      focusTab(binding.tabId);
+    });
+
+    // Close 按钮
+    const closeBtn = sessionItem.querySelector('.close-tab-btn') as HTMLButtonElement;
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeSessionTab(sessionId, binding.tabId);
+    });
+
+    sessionsList.appendChild(sessionItem);
+  }
+}
+
+/**
+ * 聚焦标签页
+ */
+async function focusTab(tabId: number): Promise<void> {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    await chrome.tabs.update(tabId, { active: true });
+    if (tab.windowId) {
+      await chrome.windows.update(tab.windowId, { focused: true });
+    }
+    addLog('tab', `Focused tab ${tabId}`, 'success');
+  } catch (error) {
+    console.error('[SidePanel] Failed to focus tab:', error);
+    addLog('tab', `Failed to focus tab ${tabId}`, 'error');
+  }
+}
+
+/**
+ * 关闭会话标签页
+ */
+async function closeSessionTab(sessionId: string, tabId: number): Promise<void> {
+  try {
+    await chrome.tabs.remove(tabId);
+    await cleanupSession(sessionId, false); // 不再次关闭标签页
+    sendSessionEnd(sessionId);
+    await renderSessionsList();
+    addLog('session', `Closed session ${sessionId.slice(0, 8)}`, 'success');
+  } catch (error) {
+    console.error('[SidePanel] Failed to close session tab:', error);
+    addLog('session', `Failed to close session ${sessionId.slice(0, 8)}`, 'error');
+  }
+}
 
 /**
  * 切换标签页
@@ -135,6 +276,9 @@ async function getOrCreateTabForSession(sessionId: string): Promise<number> {
 
     // 通知服务器会话已启动
     sendSessionStart(sessionId);
+
+    // 更新会话列表 UI
+    await renderSessionsList();
   } else {
     // 更新最后活跃时间
     binding.lastActiveAt = Date.now();
@@ -151,6 +295,9 @@ async function getOrCreateTabForSession(sessionId: string): Promise<number> {
       binding.tabId = tab.id;
       addLog('session', `Session ${sessionId.slice(0, 8)} rebound to new tab ${tab.id}`, 'success');
     }
+
+    // 更新会话列表 UI
+    await renderSessionsList();
   }
 
   return binding.tabId;
@@ -198,6 +345,9 @@ async function cleanupSession(sessionId: string, closeTab: boolean = false): Pro
     }
     sessionBindings.delete(sessionId);
     addLog('session', `Session ${sessionId.slice(0, 8)} cleaned up`, 'success');
+
+    // 更新会话列表 UI
+    await renderSessionsList();
   }
 }
 
@@ -489,5 +639,37 @@ initSettings();
 
 // 初始化连接
 connect();
+
+// 监听标签页更新（标题、URL 变化）
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.title || changeInfo.url) {
+    // 检查是否是会话绑定的标签页
+    for (const binding of sessionBindings.values()) {
+      if (binding.tabId === tabId) {
+        renderSessionsList();
+        break;
+      }
+    }
+  }
+});
+
+// 监听标签页关闭
+chrome.tabs.onRemoved.addListener((tabId) => {
+  // 查找并清理对应的会话
+  for (const [sessionId, binding] of sessionBindings.entries()) {
+    if (binding.tabId === tabId) {
+      cleanupSession(sessionId, false);
+      sendSessionEnd(sessionId);
+      break;
+    }
+  }
+});
+
+// 定期更新 "time ago" 显示
+setInterval(() => {
+  if (sessionBindings.size > 0) {
+    renderSessionsList();
+  }
+}, 5000);
 
 console.log('[SidePanel] Side Panel loaded');
