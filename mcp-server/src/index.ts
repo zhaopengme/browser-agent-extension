@@ -730,6 +730,34 @@ Note: Only supports CSS selector. The context menu that appears is the browser's
       required: ['selector'],
     },
   },
+
+  // ========== 资源下载 ==========
+  {
+    name: 'browser_download',
+    description: `Download a page resource (image, video, audio, file) to local.
+
+Supports three ways to specify the resource:
+1. By element index (recommended): Use the index from browser_get_dom_tree output
+2. By CSS selector: Locate the media element with a CSS selector
+3. By URL: Direct download from a URL
+
+For resources on the current page (index/selector), uses page context fetch to bypass anti-hotlinking.
+Files are saved to Chrome's default download directory with timestamp-based filenames.
+
+Example workflow:
+1. browser_get_dom_tree → Find [3] img "Logo" @(10,10,200,50)
+2. browser_download({ index: 3 }) → Downloads the image
+
+Returns: { success: true, filename: "1706284800123.png", downloadId: 42 }`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'Resource URL for direct download' },
+        index: { type: 'number', description: 'Element index from browser_get_dom_tree output (recommended)' },
+        selector: { type: 'string', description: 'CSS selector to locate the media element' },
+      },
+    },
+  },
 ];
 
 /**
@@ -792,6 +820,9 @@ function getActionFromToolName(toolName: string): string {
     browser_hover: 'hover',
     browser_double_click: 'double_click',
     browser_right_click: 'right_click',
+
+    // 资源下载
+    browser_download: 'download',
   };
   return mapping[toolName] || toolName;
 }
