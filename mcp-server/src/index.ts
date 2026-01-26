@@ -3,7 +3,8 @@
  * Browser Agent MCP Server
  *
  * 通过 stdio 与 AI 客户端通信 (MCP 协议)
- * 通过 WebSocket 与浏览器扩展通信
+ * 通过 Daemon 与浏览器扩展通信 (支持多客户端会话)
+ * 如果 Daemon 不可用，回退到直接 WebSocket 连接
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -14,12 +15,28 @@ import {
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import { WebSocketServer, WebSocket } from 'ws';
+import * as net from 'net';
+import { spawn } from 'child_process';
+import * as path from 'path';
+import * as fs from 'fs';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const WS_PORT = process.env.BROWSER_AGENT_WS_PORT ? parseInt(process.env.BROWSER_AGENT_WS_PORT) : 3026;
 const HEARTBEAT_INTERVAL = 30000; // 30秒心跳间隔
 const HEARTBEAT_TIMEOUT = 10000;  // 10秒心跳超时
+const DAEMON_SOCKET_PATH = '/tmp/browser-agent-daemon.sock';
+const DAEMON_STARTUP_TIMEOUT = 5000; // 5秒等待 daemon 启动
 
-// 存储当前连接的扩展客户端
+// Daemon 模式状态
+let useDaemon = false;
+let daemonSocket: net.Socket | null = null;
+let sessionId: string | null = null;
+let daemonBuffer = '';
+
+// 存储当前连接的扩展客户端（回退模式）
 let extensionClient: WebSocket | null = null;
 let heartbeatTimer: NodeJS.Timeout | null = null;
 let wssInstance: WebSocketServer | null = null;
@@ -44,6 +61,258 @@ function clearPendingRequests(reason: string): void {
   }
   pendingRequests.clear();
 }
+
+// ========== Daemon 相关函数 ==========
+
+/**
+ * 检查 daemon socket 是否存在且可连接
+ */
+async function isDaemonRunning(): Promise<boolean> {
+  if (!fs.existsSync(DAEMON_SOCKET_PATH)) {
+    return false;
+  }
+
+  return new Promise((resolve) => {
+    const testSocket = net.createConnection(DAEMON_SOCKET_PATH);
+
+    testSocket.on('connect', () => {
+      testSocket.end();
+      resolve(true);
+    });
+
+    testSocket.on('error', () => {
+      resolve(false);
+    });
+
+    setTimeout(() => {
+      testSocket.destroy();
+      resolve(false);
+    }, 1000);
+  });
+}
+
+/**
+ * 启动 daemon 进程
+ */
+function spawnDaemon(): void {
+  const daemonPath = path.join(__dirname, 'daemon.js');
+
+  if (!fs.existsSync(daemonPath)) {
+    console.error(`[MCP Server] Daemon script not found at ${daemonPath}`);
+    return;
+  }
+
+  console.error('[MCP Server] Spawning daemon process...');
+
+  const child = spawn('node', [daemonPath], {
+    detached: true,
+    stdio: 'ignore'
+  });
+
+  child.unref();
+  console.error(`[MCP Server] Daemon spawned with PID ${child.pid}`);
+}
+
+/**
+ * 等待 daemon 启动完成
+ */
+async function waitForDaemon(): Promise<boolean> {
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < DAEMON_STARTUP_TIMEOUT) {
+    if (await isDaemonRunning()) {
+      return true;
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+
+  return false;
+}
+
+/**
+ * 连接到 daemon
+ */
+async function connectToDaemon(): Promise<boolean> {
+  try {
+    // 检查 daemon 是否运行
+    if (!(await isDaemonRunning())) {
+      console.error('[MCP Server] Daemon not running, attempting to spawn...');
+      spawnDaemon();
+
+      // 等待 daemon 启动
+      if (!(await waitForDaemon())) {
+        console.error('[MCP Server] Daemon failed to start within timeout');
+        return false;
+      }
+    }
+
+    // 连接到 daemon
+    daemonSocket = net.createConnection(DAEMON_SOCKET_PATH);
+
+    return new Promise((resolve) => {
+      let resolved = false;
+
+      daemonSocket!.on('connect', () => {
+        console.error('[MCP Server] Connected to daemon');
+
+        // 发送 REGISTER 消息
+        const registerId = `reg_${++requestIdCounter}`;
+        sendToDaemon({
+          type: 'REGISTER',
+          id: registerId,
+        });
+      });
+
+      daemonSocket!.on('data', (data) => {
+        daemonBuffer += data.toString();
+
+        // 处理完整消息（换行符分隔）
+        let newlineIndex: number;
+        while ((newlineIndex = daemonBuffer.indexOf('\n')) !== -1) {
+          const line = daemonBuffer.slice(0, newlineIndex);
+          daemonBuffer = daemonBuffer.slice(newlineIndex + 1);
+
+          if (line.trim()) {
+            try {
+              const message = JSON.parse(line);
+              handleDaemonMessage(message);
+
+              // 处理 REGISTER_OK 响应
+              if (message.type === 'REGISTER_OK' && !resolved) {
+                sessionId = message.sessionId;
+                console.error(`[MCP Server] Session registered: ${sessionId}`);
+                resolved = true;
+                resolve(true);
+              }
+            } catch (error) {
+              console.error('[MCP Server] Failed to parse daemon message:', error);
+            }
+          }
+        }
+      });
+
+      daemonSocket!.on('close', () => {
+        console.error('[MCP Server] Daemon connection closed');
+        daemonSocket = null;
+        sessionId = null;
+        useDaemon = false;
+        clearPendingRequests('Daemon connection closed');
+
+        if (!resolved) {
+          resolved = true;
+          resolve(false);
+        }
+      });
+
+      daemonSocket!.on('error', (error) => {
+        console.error('[MCP Server] Daemon connection error:', error);
+        if (!resolved) {
+          resolved = true;
+          resolve(false);
+        }
+      });
+
+      // 超时处理
+      setTimeout(() => {
+        if (!resolved) {
+          console.error('[MCP Server] Daemon registration timeout');
+          if (daemonSocket) {
+            daemonSocket.destroy();
+          }
+          resolved = true;
+          resolve(false);
+        }
+      }, 5000);
+    });
+  } catch (error) {
+    console.error('[MCP Server] Failed to connect to daemon:', error);
+    return false;
+  }
+}
+
+/**
+ * 发送消息到 daemon
+ */
+function sendToDaemon(message: object): void {
+  if (!daemonSocket) {
+    throw new Error('Daemon not connected');
+  }
+  daemonSocket.write(JSON.stringify(message) + '\n');
+}
+
+/**
+ * 处理来自 daemon 的消息
+ */
+function handleDaemonMessage(message: any): void {
+  if (message.type === 'RESPONSE') {
+    const pending = pendingRequests.get(message.id);
+    if (pending) {
+      clearTimeout(pending.timeout);
+      pendingRequests.delete(message.id);
+
+      if (message.payload.success) {
+        pending.resolve(message.payload.data);
+      } else {
+        pending.reject(new Error(message.payload.error || 'Unknown error'));
+      }
+    }
+  }
+}
+
+/**
+ * 通过 daemon 发送请求
+ */
+async function sendViaDaemon(action: string, params?: Record<string, unknown>): Promise<unknown> {
+  if (!daemonSocket || !sessionId) {
+    throw new Error('Daemon not connected or session not registered');
+  }
+
+  const id = `req_${++requestIdCounter}`;
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      pendingRequests.delete(id);
+      reject(new Error(`Request timeout: ${action}`));
+    }, 30000); // 30秒超时
+
+    pendingRequests.set(id, { resolve, reject, timeout });
+
+    sendToDaemon({
+      type: 'REQUEST',
+      id,
+      sessionId,
+      action,
+      params,
+    });
+  });
+}
+
+/**
+ * 断开 daemon 连接
+ */
+function disconnectFromDaemon(): void {
+  if (daemonSocket && sessionId) {
+    try {
+      sendToDaemon({
+        type: 'DISCONNECT',
+        id: `disc_${++requestIdCounter}`,
+        sessionId,
+      });
+    } catch (error) {
+      console.error('[MCP Server] Failed to send DISCONNECT:', error);
+    }
+  }
+
+  if (daemonSocket) {
+    daemonSocket.end();
+    daemonSocket = null;
+  }
+
+  sessionId = null;
+  useDaemon = false;
+}
+
+// ========== 回退模式：直接 WebSocket 连接 ==========
 
 /**
  * 启动心跳检测
@@ -79,9 +348,21 @@ function stopHeartbeat(): void {
 }
 
 /**
- * 发送请求到浏览器扩展
+ * 发送请求到浏览器扩展（自动选择 daemon 或直接连接）
  */
 async function sendToExtension(action: string, params?: Record<string, unknown>): Promise<unknown> {
+  // 优先使用 daemon
+  if (useDaemon && daemonSocket && sessionId) {
+    try {
+      return await sendViaDaemon(action, params);
+    } catch (error) {
+      console.error('[MCP Server] Daemon request failed, falling back to direct connection:', error);
+      // 如果 daemon 失败，尝试回退到直接连接
+      useDaemon = false;
+    }
+  }
+
+  // 回退到直接 WebSocket 连接
   if (!extensionClient || extensionClient.readyState !== WebSocket.OPEN) {
     throw new Error(
       'Browser extension not connected. ' +
@@ -892,6 +1173,11 @@ function startWebSocketServer(): WebSocketServer {
 function gracefulShutdown(signal: string): void {
   console.error(`[MCP Server] Received ${signal}, shutting down gracefully...`);
 
+  // 断开 daemon 连接
+  if (useDaemon) {
+    disconnectFromDaemon();
+  }
+
   // 停止心跳
   stopHeartbeat();
 
@@ -929,8 +1215,19 @@ async function main(): Promise<void> {
   process.on('SIGINT', () => gracefulShutdown('SIGINT'));
   process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
-  // 启动 WebSocket 服务器
-  startWebSocketServer();
+  // 尝试连接到 daemon
+  console.error('[MCP Server] Attempting to connect to daemon...');
+  const daemonConnected = await connectToDaemon();
+
+  if (daemonConnected) {
+    console.error('[MCP Server] Using daemon mode for multi-client support');
+    useDaemon = true;
+  } else {
+    console.error('[MCP Server] Daemon not available, falling back to direct WebSocket mode');
+    useDaemon = false;
+    // 启动 WebSocket 服务器（回退模式）
+    startWebSocketServer();
+  }
 
   // 创建 MCP 服务器
   const server = new Server(
@@ -956,15 +1253,27 @@ async function main(): Promise<void> {
 
     // 特殊处理连接状态检查（不需要实际连接扩展）
     if (name === 'browser_get_connection_status') {
-      const isConnected = extensionClient !== null && extensionClient.readyState === WebSocket.OPEN;
+      let isConnected = false;
+      let mode = 'unknown';
+
+      if (useDaemon && daemonSocket && sessionId) {
+        isConnected = true;
+        mode = 'daemon';
+      } else if (extensionClient !== null && extensionClient.readyState === WebSocket.OPEN) {
+        isConnected = true;
+        mode = 'direct';
+      }
+
       return {
         content: [
           {
             type: 'text',
             text: JSON.stringify({
               connected: isConnected,
+              mode,
+              sessionId: useDaemon ? sessionId : null,
               message: isConnected
-                ? 'Browser extension is connected and ready.'
+                ? `Browser extension is connected and ready (${mode} mode).`
                 : 'Browser extension is not connected. Please ask the user to open the Browser Agent extension side panel in Chrome.',
             }, null, 2),
           },
