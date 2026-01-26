@@ -21,6 +21,8 @@ const PID_FILE = '/tmp/browser-agent-daemon.pid';
 const WS_PORT = process.env.BROWSER_AGENT_WS_PORT ? parseInt(process.env.BROWSER_AGENT_WS_PORT) : 3026;
 const IDLE_TIMEOUT = 60000; // 60 seconds
 const REQUEST_TIMEOUT = 30000; // 30 seconds
+const MAX_SESSIONS = 100;
+const MAX_BUFFER_SIZE = 1024 * 1024; // 1MB
 
 // Types
 interface Session {
@@ -198,6 +200,18 @@ function sendToClient(socket: net.Socket, message: object): void {
  * Handle REGISTER message
  */
 function handleRegister(socket: net.Socket, message: DaemonMessage): void {
+  // Check session limit
+  if (sessions.size >= MAX_SESSIONS) {
+    console.error(`[Daemon] Maximum session limit (${MAX_SESSIONS}) reached`);
+    sendToClient(socket, {
+      type: 'REGISTER_ERROR',
+      id: message.id,
+      error: `Maximum session limit (${MAX_SESSIONS}) reached. Please close some sessions.`
+    });
+    socket.end();
+    return;
+  }
+
   const sessionId = generateSessionId();
 
   const session: Session = {
@@ -347,6 +361,13 @@ function handleClientConnection(socket: net.Socket): void {
 
   socket.on('data', (data) => {
     buffer += data.toString();
+
+    // Check buffer size
+    if (buffer.length > MAX_BUFFER_SIZE) {
+      console.error('[Daemon] Buffer overflow, closing connection');
+      socket.destroy();
+      return;
+    }
 
     // Process complete messages (newline-delimited)
     let newlineIndex: number;

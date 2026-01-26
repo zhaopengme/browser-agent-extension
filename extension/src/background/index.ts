@@ -889,7 +889,21 @@ async function downloadResource(params: Record<string, unknown>, tabId?: number)
 
       // 如果使用了 blob URL，清理它
       if (downloadUrl.startsWith('blob:')) {
-        setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+        const listener = (delta: chrome.downloads.DownloadDelta) => {
+          if (delta.id === downloadId && delta.state) {
+            if (delta.state.current === 'complete' || delta.state.current === 'interrupted') {
+              URL.revokeObjectURL(downloadUrl);
+              chrome.downloads.onChanged.removeListener(listener);
+            }
+          }
+        };
+        chrome.downloads.onChanged.addListener(listener);
+
+        // Fallback: cleanup after 60 seconds anyway
+        setTimeout(() => {
+          URL.revokeObjectURL(downloadUrl);
+          chrome.downloads.onChanged.removeListener(listener);
+        }, 60000);
       }
 
       resolve({

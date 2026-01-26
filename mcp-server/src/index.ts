@@ -245,6 +245,33 @@ async function connectToDaemon(): Promise<boolean> {
         useDaemon = false;
         clearPendingRequests('Daemon connection closed');
 
+        // Attempt to reconnect with exponential backoff
+        let reconnectAttempts = 0;
+        const maxAttempts = 3;
+
+        const attemptReconnect = async () => {
+          if (reconnectAttempts >= maxAttempts) {
+            console.error('[MCP Server] Max reconnection attempts reached, giving up');
+            return;
+          }
+
+          reconnectAttempts++;
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 10000);
+          console.error(`[MCP Server] Attempting to reconnect in ${delay}ms (attempt ${reconnectAttempts}/${maxAttempts})`);
+
+          setTimeout(async () => {
+            if (await connectToDaemon()) {
+              console.error('[MCP Server] Successfully reconnected to daemon');
+              useDaemon = true;
+              reconnectAttempts = 0;
+            } else {
+              attemptReconnect();
+            }
+          }, delay);
+        };
+
+        attemptReconnect();
+
         if (!resolved) {
           resolved = true;
           resolve(false);
