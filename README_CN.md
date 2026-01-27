@@ -55,6 +55,33 @@ Apache License 2.0 协议开源
    }
    ```
 
+如果使用 Bun 编译二进制（`bun run build:bin`），可直接指向编译后的可执行文件：
+```json
+{
+  "mcpServers": {
+    "browser-agent": {
+      "type": "stdio",
+      "command": "/abs/path/to/mcp-server/dist/browser-agent-mcp"
+    }
+  }
+}
+```
+
+如果 daemon 在创建 `/tmp/browser-agent-daemon.sock` 时失败（如 EPERM），可指定可写的 socket 路径：
+```json
+{
+  "mcpServers": {
+    "browser-agent": {
+      "type": "stdio",
+      "command": "browser-agent-extension-mcp",
+      "env": {
+        "BROWSER_AGENT_DAEMON_SOCKET": "/path/to/writable/browser-agent-daemon.sock"
+      }
+    }
+  }
+}
+```
+
 安装完成后告诉我如何重新加载 MCP 配置。
 
 ---

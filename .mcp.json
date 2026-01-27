@@ -2,8 +2,12 @@
   "mcpServers": {
     "browser-agent": {
       "type": "stdio",
-      "command": "node",
-      "args": ["./mcp-server/dist/index.js"]
+      "command": "/home/zhaopeng/projects/github/ai-memory/browser-agent-extension/mcp-server/dist/browser-agent-mcp",
+      "env": {
+        "BROWSER_AGENT_WS_PORT": "3026",
+        "BROWSER_AGENT_DAEMON_SOCKET": "/home/zhaopeng/projects/github/ai-memory/browser-agent-extension/mcp-server/.run/daemon.sock",
+        "BROWSER_AGENT_LOG_FILE": "/home/zhaopeng/projects/github/ai-memory/browser-agent-extension/mcp-server/.run/browser-agent.log"
+      }
     }
   }
 }

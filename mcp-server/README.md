@@ -7,8 +7,10 @@ MCP Server for controlling browser through the Browser Agent Extension.
 1. Install dependencies and build:
 ```bash
 cd mcp-server
-npm install
-npm run build
+bun install
+bun run build
+# or compile a single binary:
+bun run build:bin
 ```
 
 2. Add to Claude Desktop config (`%APPDATA%\Claude\claude_desktop_config.json`):
@@ -16,8 +18,19 @@ npm run build
 {
   "mcpServers": {
     "browser-agent": {
-      "command": "node",
-      "args": ["C:/07.dev/browser-agent-extension/mcp-server/dist/index.js"]
+      "command": "C:/07.dev/browser-agent-extension/mcp-server/dist/browser-agent-mcp"
+    }
+  }
+}
+```
+
+Or use the JS entrypoint:
+```json
+{
+  "mcpServers": {
+    "browser-agent": {
+      "command": "bun",
+      "args": ["C:/07.dev/browser-agent-extension/mcp-server/dist/main.js"]
     }
   }
 }

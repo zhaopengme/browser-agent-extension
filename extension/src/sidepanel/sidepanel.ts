@@ -3,6 +3,8 @@
  * 连接 MCP Server，转发请求到 Service Worker
  */
 
+import { pickTabIdForNewSession } from './session-binding';
+
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 3026;
 const RECONNECT_DELAY = 3000;
@@ -254,25 +256,38 @@ function switchTab(targetPanel: string): void {
 /**
  * 获取或创建会话对应的标签页
  */
-async function getOrCreateTabForSession(sessionId: string): Promise<number> {
+async function getOrCreateTabForSession(
+  sessionId: string,
+  options: { preferActiveTab?: boolean } = {}
+): Promise<number> {
   let binding = sessionBindings.get(sessionId);
 
   if (!binding) {
-    // 为此会话创建新标签页
-    const tab = await chrome.tabs.create({ active: false });
-    if (!tab.id) {
-      throw new Error('Failed to create tab for session');
+    let tabId: number | null = null;
+
+    if (options.preferActiveTab) {
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const candidate = activeTab && activeTab.id ? { id: activeTab.id, url: activeTab.url } : null;
+      tabId = pickTabIdForNewSession(candidate);
+    }
+
+    if (tabId === null) {
+      const tab = await chrome.tabs.create({ active: false });
+      if (!tab.id) {
+        throw new Error('Failed to create tab for session');
+      }
+      tabId = tab.id;
     }
 
     binding = {
       sessionId,
-      tabId: tab.id,
+      tabId,
       createdAt: Date.now(),
       lastActiveAt: Date.now()
     };
     sessionBindings.set(sessionId, binding);
 
-    addLog('session', `Session ${sessionId.slice(0, 8)} bound to tab ${tab.id}`, 'success');
+    addLog('session', `Session ${sessionId.slice(0, 8)} bound to tab ${tabId}`, 'success');
 
     // 通知服务器会话已启动
     sendSessionStart(sessionId);
@@ -301,6 +316,38 @@ async function getOrCreateTabForSession(sessionId: string): Promise<number> {
   }
 
   return binding.tabId;
+}
+
+/**
+ * Bind session to a specific tabId
+ */
+async function bindSessionToTab(sessionId: string, tabId: number): Promise<number> {
+  try {
+    await chrome.tabs.get(tabId);
+  } catch {
+    throw new Error(`Tab ${tabId} not found`);
+  }
+
+  let binding = sessionBindings.get(sessionId);
+
+  if (!binding) {
+    binding = {
+      sessionId,
+      tabId,
+      createdAt: Date.now(),
+      lastActiveAt: Date.now()
+    };
+    sessionBindings.set(sessionId, binding);
+    addLog('session', `Session ${sessionId.slice(0, 8)} bound to tab ${tabId}`, 'success');
+    sendSessionStart(sessionId);
+  } else {
+    binding.tabId = tabId;
+    binding.lastActiveAt = Date.now();
+    addLog('session', `Session ${sessionId.slice(0, 8)} rebound to tab ${tabId}`, 'success');
+  }
+
+  await renderSessionsList();
+  return tabId;
 }
 
 /**
@@ -475,11 +522,32 @@ function connect(): void {
           addLog(request.action, JSON.stringify(request.params || {}).slice(0, 100));
 
           let tabId: number | undefined;
+          const requestParams = (request.params || {}) as Record<string, unknown>;
+          const requestedTabId = typeof requestParams.tabId === 'number' ? requestParams.tabId : undefined;
 
-          // 如果有 sessionId，获取或创建对应的标签页
-          if (sessionId) {
+          if (requestedTabId !== undefined) {
             try {
-              tabId = await getOrCreateTabForSession(sessionId);
+              tabId = sessionId
+                ? await bindSessionToTab(sessionId, requestedTabId)
+                : requestedTabId;
+            } catch (error) {
+              console.error('[SidePanel] Failed to bind session to tab:', error);
+              const errorResponse: WSResponse = {
+                type: 'RESPONSE',
+                id: request.id,
+                sessionId: sessionId,
+                payload: {
+                  success: false,
+                  error: `Failed to bind session to tab: ${error instanceof Error ? error.message : 'Unknown error'}`
+                }
+              };
+              ws?.send(JSON.stringify(errorResponse));
+              addLog(request.action, 'session tab error', 'error');
+              return;
+            }
+          } else if (sessionId) {
+            try {
+              tabId = await getOrCreateTabForSession(sessionId, { preferActiveTab: true });
             } catch (error) {
               console.error('[SidePanel] Failed to get/create tab for session:', error);
               const errorResponse: WSResponse = {
@@ -502,7 +570,7 @@ function connect(): void {
             type: 'MCP_REQUEST',
             id: request.id,
             action: request.action,
-            params: request.params,
+            params: requestParams,
             tabId: tabId, // 传递 tabId 以便在特定标签页执行操作
           });
 

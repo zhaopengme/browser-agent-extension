@@ -4,20 +4,25 @@
  *
  * Multi-client session support daemon that:
  * - Manages Unix Socket server for MCP client connections
- * - Maintains WebSocket connection to browser extension
- * - Routes requests between multiple MCP clients and extension
+ * - Runs WebSocket server for browser extension connections
+ * - Routes requests between multiple MCP clients and extensions
  * - Tracks session-to-tab bindings
  * - Auto-exits after 60s of no active sessions
  */
 
 import * as net from 'net';
 import * as fs from 'fs';
+import * as path from 'path';
 import * as crypto from 'crypto';
-import { WebSocket } from 'ws';
+import { WebSocketServer, WebSocket } from 'ws';
 
 // Configuration
-const SOCKET_PATH = '/tmp/browser-agent-daemon.sock';
-const PID_FILE = '/tmp/browser-agent-daemon.pid';
+const DEFAULT_SOCKET_PATH = process.env.XDG_RUNTIME_DIR
+  ? path.join(process.env.XDG_RUNTIME_DIR, 'browser-agent-daemon.sock')
+  : '/tmp/browser-agent-daemon.sock';
+const SOCKET_PATH = process.env.BROWSER_AGENT_DAEMON_SOCKET || DEFAULT_SOCKET_PATH;
+const PID_FILE = process.env.BROWSER_AGENT_DAEMON_PID || `${SOCKET_PATH}.pid`;
+const WS_HOST = process.env.BROWSER_AGENT_WS_HOST || '0.0.0.0';
 const WS_PORT = process.env.BROWSER_AGENT_WS_PORT ? parseInt(process.env.BROWSER_AGENT_WS_PORT) : 3026;
 const IDLE_TIMEOUT = 60000; // 60 seconds
 const REQUEST_TIMEOUT = 30000; // 30 seconds
@@ -40,7 +45,7 @@ interface PendingRequest {
 }
 
 interface DaemonMessage {
-  type: 'REGISTER' | 'REQUEST' | 'PING' | 'DISCONNECT';
+  type: 'REGISTER' | 'REQUEST' | 'PING' | 'DISCONNECT' | 'STATUS';
   id: string;
   sessionId?: string;
   action?: string;
@@ -48,10 +53,10 @@ interface DaemonMessage {
 }
 
 interface ExtensionMessage {
-  type: 'RESPONSE';
-  id: string;
+  type: 'RESPONSE' | 'SESSION_START' | 'SESSION_END';
+  id?: string;
   sessionId: string;
-  payload: {
+  payload?: {
     success: boolean;
     data?: unknown;
     error?: string;
@@ -61,9 +66,34 @@ interface ExtensionMessage {
 // State
 const sessions = new Map<string, Session>();
 const pendingRequests = new Map<string, PendingRequest>();
-let extensionWs: WebSocket | null = null;
+
+// WebSocket connections from extensions (key: sessionId, value: WebSocket)
+// For simplicity, we assume one extension connection per session
+const extensionConnections = new Map<string, WebSocket>();
+
+// Shared extension connection (when multiple sessions share one extension)
+let sharedExtensionWs: WebSocket | null = null;
+
 let unixServer: net.Server | null = null;
+let wsServer: WebSocketServer | null = null;
 let idleTimer: NodeJS.Timeout | null = null;
+
+/**
+ * Check if any extension WebSocket is connected
+ */
+function isExtensionConnected(): boolean {
+  if (sharedExtensionWs && sharedExtensionWs.readyState === WebSocket.OPEN) {
+    return true;
+  }
+
+  for (const ws of extensionConnections.values()) {
+    if (ws.readyState === WebSocket.OPEN) {
+      return true;
+    }
+  }
+
+  return false;
+}
 
 /**
  * Generate a random session ID
@@ -88,71 +118,101 @@ function resetIdleTimer(): void {
   }, IDLE_TIMEOUT);
 }
 
-/**
- * Connect to browser extension via WebSocket
- */
-function connectToExtension(): void {
-  if (extensionWs && extensionWs.readyState === WebSocket.OPEN) {
-    return;
+function ensureSocketDir(): void {
+  const socketDir = path.dirname(SOCKET_PATH);
+  try {
+    fs.mkdirSync(socketDir, { recursive: true, mode: 0o700 });
+  } catch (error) {
+    console.error(`[Daemon] Failed to create socket dir: ${socketDir}`, error);
+    process.exit(1);
   }
 
-  console.error(`[Daemon] Connecting to browser extension on port ${WS_PORT}...`);
+  try {
+    fs.accessSync(socketDir, fs.constants.W_OK);
+  } catch (error) {
+    console.error(`[Daemon] Socket dir not writable: ${socketDir}. Set BROWSER_AGENT_DAEMON_SOCKET to a writable path.`);
+    process.exit(1);
+  }
+}
 
-  extensionWs = new WebSocket(`ws://localhost:${WS_PORT}`);
+/**
+ * Start WebSocket server for extension connections
+ */
+function startWebSocketServer(): void {
+  wsServer = new WebSocketServer({ host: WS_HOST, port: WS_PORT });
 
-  extensionWs.on('open', () => {
-    console.error('[Daemon] Connected to browser extension');
+  wsServer.on('listening', () => {
+    console.error(`[Daemon] WebSocket server listening on ${WS_HOST}:${WS_PORT}`);
   });
 
-  extensionWs.on('message', (data: Buffer) => {
-    try {
-      const message = JSON.parse(data.toString()) as ExtensionMessage;
+  wsServer.on('connection', (ws, req) => {
+    // Get the IP address of the connected client
+    const clientIp = req.socket.remoteAddress;
+    console.error(`[Daemon] Extension connected from ${clientIp}`);
 
-      if (message.type === 'RESPONSE') {
-        const pending = pendingRequests.get(message.id);
-        if (pending) {
-          clearTimeout(pending.timeout);
-          pendingRequests.delete(message.id);
+    ws.on('message', (data: Buffer) => {
+      try {
+        const message = JSON.parse(data.toString()) as ExtensionMessage;
 
-          // Update session last active time
-          const session = sessions.get(pending.sessionId);
-          if (session) {
-            session.lastActiveAt = Date.now();
-          }
+        // Handle different message types from extension
+        if (message.type === 'RESPONSE' && message.id) {
+          const pending = pendingRequests.get(message.id);
+          if (pending) {
+            clearTimeout(pending.timeout);
+            pendingRequests.delete(message.id);
 
-          if (message.payload.success) {
-            pending.resolve(message.payload.data);
-          } else {
-            pending.reject(new Error(message.payload.error || 'Unknown error'));
+            // Update session last active time
+            const session = sessions.get(pending.sessionId);
+            if (session) {
+              session.lastActiveAt = Date.now();
+            }
+
+            if (message.payload?.success) {
+              pending.resolve(message.payload.data);
+            } else {
+              pending.reject(new Error(message.payload?.error || 'Unknown error'));
+            }
           }
         }
+      } catch (error) {
+        console.error('[Daemon] Failed to parse extension message:', error);
       }
-    } catch (error) {
-      console.error('[Daemon] Failed to parse extension message:', error);
+    });
+
+    ws.on('close', () => {
+      console.error('[Daemon] Extension disconnected');
+
+      // Clear extension connections
+      for (const [sessionId, extWs] of extensionConnections) {
+        if (extWs === ws) {
+          extensionConnections.delete(sessionId);
+        }
+      }
+
+      if (sharedExtensionWs === ws) {
+        sharedExtensionWs = null;
+      }
+
+      // Clear all pending requests
+      for (const [id, pending] of pendingRequests) {
+        clearTimeout(pending.timeout);
+        pending.reject(new Error('Extension disconnected'));
+      }
+      pendingRequests.clear();
+    });
+
+    ws.on('error', (error) => {
+      console.error('[Daemon] WebSocket error:', error);
+    });
+
+    // Use this as the shared extension connection
+    if (!sharedExtensionWs) {
+      sharedExtensionWs = ws;
     }
   });
 
-  extensionWs.on('close', () => {
-    console.error('[Daemon] Browser extension disconnected');
-    extensionWs = null;
-
-    // Clear all pending requests
-    for (const [id, pending] of pendingRequests) {
-      clearTimeout(pending.timeout);
-      pending.reject(new Error('Browser extension disconnected'));
-    }
-    pendingRequests.clear();
-
-    // Attempt to reconnect after 5 seconds
-    setTimeout(() => {
-      if (sessions.size > 0) {
-        connectToExtension();
-      }
-    }, 5000);
-  });
-
-  extensionWs.on('error', (error) => {
-    console.error('[Daemon] WebSocket error:', error);
+  wsServer.on('error', (error) => {
+    console.error('[Daemon] WebSocket server error:', error);
   });
 }
 
@@ -161,7 +221,15 @@ function connectToExtension(): void {
  */
 function sendToExtension(sessionId: string, requestId: string, action: string, params?: Record<string, unknown>): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    if (!extensionWs || extensionWs.readyState !== WebSocket.OPEN) {
+    // Try session-specific extension connection first
+    let ws = extensionConnections.get(sessionId);
+
+    // Fall back to shared extension connection
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      ws = sharedExtensionWs ?? undefined;
+    }
+
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
       reject(new Error('Browser extension not connected'));
       return;
     }
@@ -181,7 +249,7 @@ function sendToExtension(sessionId: string, requestId: string, action: string, p
       params,
     };
 
-    extensionWs.send(JSON.stringify(request));
+    ws.send(JSON.stringify(request));
   });
 }
 
@@ -224,9 +292,9 @@ function handleRegister(socket: net.Socket, message: DaemonMessage): void {
   sessions.set(sessionId, session);
   console.error(`[Daemon] Session registered: ${sessionId} (total: ${sessions.size})`);
 
-  // Send SESSION_START to extension
-  if (extensionWs && extensionWs.readyState === WebSocket.OPEN) {
-    extensionWs.send(JSON.stringify({
+  // Send SESSION_START notification to extension
+  if (sharedExtensionWs && sharedExtensionWs.readyState === WebSocket.OPEN) {
+    sharedExtensionWs.send(JSON.stringify({
       type: 'SESSION_START',
       sessionId,
     }));
@@ -316,6 +384,18 @@ function handlePing(socket: net.Socket, message: DaemonMessage): void {
 }
 
 /**
+ * Handle STATUS message
+ */
+function handleStatus(socket: net.Socket, message: DaemonMessage): void {
+  sendToClient(socket, {
+    type: 'STATUS_OK',
+    id: message.id,
+    extensionConnected: isExtensionConnected(),
+    activeSessions: sessions.size,
+  });
+}
+
+/**
  * Handle DISCONNECT message
  */
 function handleDisconnect(socket: net.Socket, message: DaemonMessage): void {
@@ -331,12 +411,15 @@ function handleDisconnect(socket: net.Socket, message: DaemonMessage): void {
     console.error(`[Daemon] Session disconnected: ${sessionId} (remaining: ${sessions.size})`);
 
     // Send SESSION_END to extension
-    if (extensionWs && extensionWs.readyState === WebSocket.OPEN) {
-      extensionWs.send(JSON.stringify({
+    if (sharedExtensionWs && sharedExtensionWs.readyState === WebSocket.OPEN) {
+      sharedExtensionWs.send(JSON.stringify({
         type: 'SESSION_END',
         sessionId,
       }));
     }
+
+    // Remove session-specific extension connection
+    extensionConnections.delete(sessionId);
 
     // Clear pending requests for this session
     for (const [id, pending] of pendingRequests) {
@@ -389,6 +472,9 @@ function handleClientConnection(socket: net.Socket): void {
             case 'PING':
               handlePing(socket, message);
               break;
+            case 'STATUS':
+              handleStatus(socket, message);
+              break;
             case 'DISCONNECT':
               handleDisconnect(socket, message);
               break;
@@ -412,12 +498,15 @@ function handleClientConnection(socket: net.Socket): void {
         console.error(`[Daemon] Session removed: ${sessionId} (remaining: ${sessions.size})`);
 
         // Send SESSION_END to extension
-        if (extensionWs && extensionWs.readyState === WebSocket.OPEN) {
-          extensionWs.send(JSON.stringify({
+        if (sharedExtensionWs && sharedExtensionWs.readyState === WebSocket.OPEN) {
+          sharedExtensionWs.send(JSON.stringify({
             type: 'SESSION_END',
             sessionId,
           }));
         }
+
+        // Remove session-specific extension connection
+        extensionConnections.delete(sessionId);
 
         // Clear pending requests for this session
         for (const [id, pending] of pendingRequests) {
@@ -444,6 +533,7 @@ function handleClientConnection(socket: net.Socket): void {
  * Start Unix Socket server
  */
 function startUnixServer(): void {
+  ensureSocketDir();
   // Remove existing socket file if it exists
   if (fs.existsSync(SOCKET_PATH)) {
     try {
@@ -525,10 +615,30 @@ function shutdown(): void {
   }
   sessions.clear();
 
-  // Close WebSocket connection
-  if (extensionWs) {
-    extensionWs.close();
-    extensionWs = null;
+  // Close WebSocket server
+  if (wsServer) {
+    wsServer.close(() => {
+      console.error('[Daemon] WebSocket server closed');
+    });
+  }
+
+  // Close all extension connections
+  for (const [sessionId, ws] of extensionConnections) {
+    try {
+      ws.close();
+    } catch (error) {
+      console.error(`[Daemon] Failed to close extension connection for ${sessionId}:`, error);
+    }
+  }
+  extensionConnections.clear();
+
+  if (sharedExtensionWs) {
+    try {
+      sharedExtensionWs.close();
+    } catch (error) {
+      console.error('[Daemon] Failed to close shared extension connection:', error);
+    }
+    sharedExtensionWs = null;
   }
 
   // Close Unix Socket server
@@ -559,7 +669,11 @@ function shutdown(): void {
 /**
  * Main function
  */
-function main(): void {
+export function runDaemon(options: { dryRun?: boolean } = {}): void {
+  if (options.dryRun) {
+    return;
+  }
+
   console.error('[Daemon] Browser Agent Daemon starting...');
 
   // Write PID file
@@ -576,11 +690,11 @@ function main(): void {
     shutdown();
   });
 
-  // Start Unix Socket server
+  // Start Unix Socket server for MCP clients
   startUnixServer();
 
-  // Connect to browser extension
-  connectToExtension();
+  // Start WebSocket server for extension connections
+  startWebSocketServer();
 
   // Start idle timer
   resetIdleTimer();
@@ -588,5 +702,6 @@ function main(): void {
   console.error('[Daemon] Daemon started successfully');
 }
 
-// Run
-main();
+if (import.meta.main) {
+  runDaemon();
+}

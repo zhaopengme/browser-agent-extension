@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__ai-memory__pipeline_list",
+      "Bash(tree:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "WebSearch",
+      "mcp__browser-agent__browser_get_connection_status",
+      "mcp__browser-agent__browser_get_page_info",
+      "mcp__browser-agent__browser_extract",
+      "mcp__browser-agent__browser_get_dom_tree",
+      "mcp__browser-agent__browser_click",
+      "mcp__browser-agent__browser_type",
+      "mcp__browser-agent__browser_wait_for_selector",
+      "mcp__browser-agent__browser_navigate"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "auggie-mcp",
+    "browser-agent"
+  ]
+}

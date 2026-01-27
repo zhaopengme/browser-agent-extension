@@ -55,6 +55,33 @@ Please help me install and configure the browser-agent MCP service:
    }
    ```
 
+If you build a Bun binary (`bun run build:bin`), point MCP to the compiled executable:
+```json
+{
+  "mcpServers": {
+    "browser-agent": {
+      "type": "stdio",
+      "command": "/abs/path/to/mcp-server/dist/browser-agent-mcp"
+    }
+  }
+}
+```
+
+If the daemon fails to create `/tmp/browser-agent-daemon.sock` (e.g. EPERM), set a writable socket path:
+```json
+{
+  "mcpServers": {
+    "browser-agent": {
+      "type": "stdio",
+      "command": "browser-agent-extension-mcp",
+      "env": {
+        "BROWSER_AGENT_DAEMON_SOCKET": "/path/to/writable/browser-agent-daemon.sock"
+      }
+    }
+  }
+}
+```
+
 After installation, tell me how to reload the MCP configuration.
 
 ---
