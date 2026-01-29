@@ -13,242 +13,308 @@
     }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif;
+      background: #0a0a0f;
+      color: #e4e4e7;
       height: 100vh;
-      display: flex;
-      flex-direction: row;
-      overflow: hidden;
-    }
-
-    /* 主内容区 */
-    .main-area {
-      flex: 1;
       display: flex;
       flex-direction: column;
       overflow: hidden;
     }
 
-    /* 顶部标签栏 */
-    .sidebar-tabs {
-      display: flex;
-      flex-direction: row;
-      gap: 4px;
-      padding: 8px 16px;
-      background: rgba(0, 0, 0, 0.2);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    /* 顶部状态栏 - 更醒目的设计 */
+    .header {
+      background: linear-gradient(135deg, #1e1e2e 0%, #2a2a3e 100%);
+      padding: 16px 20px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     }
 
-    /* 顶部工具栏 */
-    .toolbar {
+    .status-bar {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 12px 16px;
-      background: rgba(0, 0, 0, 0.2);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     }
 
-    .status-indicator {
+    .status-main {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 12px;
     }
 
-    .indicator-dot {
-      width: 8px;
-      height: 8px;
+    .status-dot {
+      width: 12px;
+      height: 12px;
       border-radius: 50%;
       background: #ef4444;
-      transition: all 0.3s;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
     }
 
-    .indicator-dot.connected {
-      background: #22c55e;
-      box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+    .status-dot.connected {
+      background: #10b981;
+      box-shadow: 0 0 20px rgba(16, 185, 129, 0.6);
     }
 
-    .indicator-dot.connecting {
+    .status-dot.connected::after {
+      content: '';
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background: #10b981;
+      animation: ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+    }
+
+    @keyframes ping {
+      75%, 100% {
+        transform: scale(2);
+        opacity: 0;
+      }
+    }
+
+    .status-dot.connecting {
       background: #f59e0b;
       animation: pulse 1.5s ease-in-out infinite;
     }
 
     @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
 
-      0%,
-      100% {
-        opacity: 1;
-      }
-
-      50% {
-        opacity: 0.5;
-      }
+    .status-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
     }
 
     .status-label {
-      font-size: 12px;
-      color: #64748b;
-      margin-right: 4px;
+      font-size: 11px;
+      color: #71717a;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 500;
     }
 
     .status-text {
-      font-size: 12px;
-      color: #94a3b8;
+      font-size: 14px;
+      font-weight: 600;
+      color: #a1a1aa;
+      transition: color 0.3s;
     }
 
     .status-text.connected {
-      color: #22c55e;
+      color: #10b981;
     }
 
     .status-text.disconnected {
       color: #ef4444;
     }
 
-    .btn-reconnect {
-      padding: 4px 10px;
-      background: rgba(255, 255, 255, 0.1);
-      border: none;
-      border-radius: 4px;
-      color: #94a3b8;
-      font-size: 11px;
-      cursor: pointer;
-      transition: all 0.2s;
-      margin-left: 8px;
+    .status-actions {
+      display: flex;
+      gap: 8px;
     }
 
-    .btn-reconnect:hover {
-      background: rgba(255, 255, 255, 0.15);
-      color: #fff;
-    }
-
-    .btn-reconnect:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
-    .btn-disconnect {
-      padding: 4px 10px;
-      background: rgba(255, 255, 255, 0.1);
-      border: none;
-      border-radius: 4px;
-      color: #94a3b8;
-      font-size: 11px;
-      cursor: pointer;
-      transition: all 0.2s;
-      margin-left: 8px;
-    }
-
-    .btn-disconnect:hover {
-      background: rgba(255, 255, 255, 0.15);
-      color: #fff;
-    }
-
-    /* 标签图标 */
-    .tab-icon {
-      background: transparent;
-      border: none;
-      color: #64748b;
-      cursor: pointer;
-      padding: 6px;
+    .btn-action {
+      padding: 6px 14px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: 6px;
+      color: #a1a1aa;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
       transition: all 0.2s;
+      backdrop-filter: blur(10px);
+    }
+
+    .btn-action:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #e4e4e7;
+      border-color: rgba(255, 255, 255, 0.2);
+      transform: translateY(-1px);
+    }
+
+    .btn-action:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* 标签导航 */
+    .tabs {
+      display: flex;
+      gap: 2px;
+      padding: 12px 20px;
+      background: rgba(0, 0, 0, 0.2);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .tab {
+      flex: 1;
       display: flex;
       align-items: center;
       justify-content: center;
+      gap: 8px;
+      padding: 10px 16px;
+      background: transparent;
+      border: none;
+      border-radius: 8px;
+      color: #71717a;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
     }
 
-    .tab-icon:hover {
-      background: rgba(255, 255, 255, 0.1);
-      color: #94a3b8;
+    .tab:hover {
+      background: rgba(255, 255, 255, 0.05);
+      color: #a1a1aa;
     }
 
-    .tab-icon.active {
-      background: rgba(0, 212, 255, 0.2);
-      color: #00d4ff;
+    .tab.active {
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(168, 85, 247, 0.15));
+      color: #a78bfa;
+      box-shadow: 0 0 20px rgba(168, 85, 247, 0.2);
     }
 
-    .tab-icon svg {
-      width: 18px;
-      height: 18px;
+    .tab.active::after {
+      content: '';
+      position: absolute;
+      bottom: -13px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 40px;
+      height: 2px;
+      background: linear-gradient(90deg, #6366f1, #a855f7);
+      border-radius: 2px;
+    }
+
+    .tab svg {
+      width: 16px;
+      height: 16px;
     }
 
     /* 内容区域 */
     .content {
       flex: 1;
       overflow: hidden;
-      display: flex;
-      flex-direction: column;
     }
 
     .panel {
       display: none;
-      flex: 1;
-      overflow: hidden;
-      padding: 16px;
+      height: 100%;
+      padding: 20px;
+      animation: fadeIn 0.3s ease;
     }
 
     .panel.active {
-      display: flex;
-      flex-direction: column;
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
 
     /* Task Log 面板 */
+    .log-panel {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      gap: 12px;
+    }
+
     .log-header {
       display: flex;
-      justify-content: flex-end;
-      margin-bottom: 10px;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .log-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #e4e4e7;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .log-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 24px;
+      padding: 2px 8px;
+      background: rgba(168, 85, 247, 0.15);
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #a78bfa;
     }
 
     .btn-clear {
-      background: rgba(255, 255, 255, 0.1);
-      border: none;
-      color: #94a3b8;
-      font-size: 11px;
-      padding: 4px 10px;
-      border-radius: 4px;
+      padding: 6px 12px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      color: #a1a1aa;
+      font-size: 12px;
+      font-weight: 500;
       cursor: pointer;
       transition: all 0.2s;
     }
 
     .btn-clear:hover {
-      background: rgba(255, 255, 255, 0.15);
-      color: #fff;
+      background: rgba(239, 68, 68, 0.15);
+      color: #ef4444;
+      border-color: rgba(239, 68, 68, 0.3);
     }
 
     .log-container {
-      background: rgba(0, 0, 0, 0.3);
-      border-radius: 8px;
-      padding: 12px;
       flex: 1;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+      padding: 16px;
       overflow-y: auto;
-      font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+      font-family: 'SF Mono', 'Monaco', 'Menlo', 'Consolas', monospace;
       font-size: 12px;
+      line-height: 1.6;
     }
 
     .log-container::-webkit-scrollbar {
-      width: 4px;
+      width: 6px;
     }
 
     .log-container::-webkit-scrollbar-track {
-      background: rgba(255, 255, 255, 0.05);
-      border-radius: 2px;
+      background: rgba(255, 255, 255, 0.03);
+      border-radius: 3px;
     }
 
     .log-container::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.15);
-      border-radius: 2px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
     }
 
     .log-container::-webkit-scrollbar-thumb:hover {
-      background: rgba(255, 255, 255, 0.25);
+      background: rgba(255, 255, 255, 0.2);
     }
 
     .log-entry {
-      padding: 6px 0;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
       display: flex;
-      gap: 8px;
+      gap: 12px;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
     }
 
     .log-entry:last-child {
@@ -256,23 +322,26 @@
     }
 
     .log-time {
-      color: #64748b;
+      color: #52525b;
       flex-shrink: 0;
+      font-size: 11px;
     }
 
     .log-action {
-      color: #00d4ff;
-      font-weight: 500;
+      color: #8b5cf6;
+      font-weight: 600;
       flex-shrink: 0;
+      min-width: 100px;
     }
 
     .log-detail {
-      color: #94a3b8;
-      word-break: break-all;
+      color: #a1a1aa;
+      word-break: break-word;
+      flex: 1;
     }
 
     .log-success {
-      color: #22c55e;
+      color: #10b981;
     }
 
     .log-error {
@@ -280,331 +349,253 @@
     }
 
     .empty-log {
-      color: #64748b;
+      color: #52525b;
       text-align: center;
-      padding: 40px 0;
+      padding: 60px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .empty-log svg {
+      width: 48px;
+      height: 48px;
+      opacity: 0.3;
     }
 
     /* Settings 面板 */
+    .settings-panel {
+      max-width: 500px;
+      margin: 0 auto;
+    }
+
     .settings-section {
-      margin-bottom: 20px;
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
     }
 
     .settings-title {
-      font-size: 13px;
+      font-size: 14px;
       font-weight: 600;
-      color: #94a3b8;
-      margin-bottom: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+      color: #e4e4e7;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .settings-title svg {
+      width: 18px;
+      height: 18px;
+      color: #8b5cf6;
     }
 
     .form-group {
-      margin-bottom: 14px;
+      margin-bottom: 16px;
+    }
+
+    .form-group:last-child {
+      margin-bottom: 0;
     }
 
     .form-label {
       display: block;
-      font-size: 12px;
-      color: #94a3b8;
-      margin-bottom: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #a1a1aa;
+      margin-bottom: 8px;
     }
 
-    .form-input,
-    .form-select {
+    .form-input {
       width: 100%;
-      padding: 10px 12px;
+      padding: 10px 14px;
       background: rgba(0, 0, 0, 0.3);
       border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 6px;
-      color: #fff;
+      border-radius: 8px;
+      color: #e4e4e7;
       font-size: 13px;
       transition: all 0.2s;
     }
 
-    .form-input:focus,
-    .form-select:focus {
+    .form-input:focus {
       outline: none;
-      border-color: #00d4ff;
-      box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.2);
+      border-color: #8b5cf6;
+      box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+      background: rgba(0, 0, 0, 0.4);
     }
 
     .form-input::placeholder {
-      color: #64748b;
+      color: #52525b;
     }
 
-    .form-select {
-      cursor: pointer;
-    }
-
-    .form-select option {
-      background: #1a1a2e;
-      color: #fff;
+    .form-input:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
 
     .form-hint {
       font-size: 11px;
-      color: #64748b;
-      margin-top: 4px;
+      color: #71717a;
+      margin-top: 6px;
+      line-height: 1.4;
     }
 
-    .btn-save {
-      width: 100%;
-      padding: 10px 16px;
-      background: linear-gradient(135deg, #00d4ff 0%, #7c3aed 100%);
-      border: none;
-      border-radius: 6px;
-      color: #fff;
+    .about-content {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .about-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .about-item:last-child {
+      border-bottom: none;
+    }
+
+    .about-label {
       font-size: 13px;
+      color: #a1a1aa;
+    }
+
+    .about-value {
+      font-size: 13px;
+      color: #e4e4e7;
       font-weight: 500;
-      cursor: pointer;
-      transition: all 0.2s;
+      font-family: 'SF Mono', monospace;
     }
 
-    .btn-save:hover {
-      opacity: 0.9;
-      transform: translateY(-1px);
-    }
-
-    .btn-save:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-      transform: none;
-    }
-
-    .save-status {
-      text-align: center;
-      font-size: 12px;
-      margin-top: 10px;
-      min-height: 18px;
-    }
-
-    .save-status.success {
-      color: #22c55e;
-    }
-
-    .save-status.error {
-      color: #ef4444;
-    }
-
-    /* Sessions 面板 */
-    .sessions-container {
-      display: flex;
-      flex-direction: column;
-      height: 100%;
-    }
-
-    .sessions-title {
-      font-size: 14px;
-      font-weight: 600;
-      color: #94a3b8;
-      margin-bottom: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    .sessions-list {
-      flex: 1;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .sessions-list::-webkit-scrollbar {
-      width: 4px;
-    }
-
-    .sessions-list::-webkit-scrollbar-track {
-      background: rgba(255, 255, 255, 0.05);
-      border-radius: 2px;
-    }
-
-    .sessions-list::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.15);
-      border-radius: 2px;
-    }
-
-    .sessions-list::-webkit-scrollbar-thumb:hover {
-      background: rgba(255, 255, 255, 0.25);
-    }
-
-    .empty-sessions {
-      color: #64748b;
-      text-align: center;
-      padding: 40px 0;
-      font-size: 13px;
-    }
-
-    .session-item {
-      background: rgba(0, 0, 0, 0.3);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 8px;
-      padding: 12px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .session-item:hover {
-      background: rgba(0, 0, 0, 0.4);
-      border-color: rgba(0, 212, 255, 0.3);
-      transform: translateY(-1px);
-    }
-
-    .session-header {
-      display: flex;
+    .github-link {
+      display: inline-flex;
       align-items: center;
       gap: 8px;
-      margin-bottom: 8px;
-    }
-
-    .session-status {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-
-    .session-status.connected {
-      background: #22c55e;
-      box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
-    }
-
-    .session-status.disconnected {
-      background: #64748b;
-    }
-
-    .session-id {
-      font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
-      font-size: 12px;
-      color: #00d4ff;
+      padding: 10px 16px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      color: #a1a1aa;
+      font-size: 13px;
       font-weight: 500;
-      flex: 1;
-    }
-
-    .session-time {
-      font-size: 11px;
-      color: #64748b;
-      flex-shrink: 0;
-    }
-
-    .session-tab {
-      margin-bottom: 8px;
-      padding-left: 16px;
-    }
-
-    .tab-title {
-      font-size: 12px;
-      color: #94a3b8;
-      display: block;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .session-actions {
-      display: flex;
-      gap: 6px;
-      padding-left: 16px;
-    }
-
-    .focus-tab-btn,
-    .close-tab-btn {
-      padding: 4px 10px;
-      background: rgba(255, 255, 255, 0.1);
-      border: none;
-      border-radius: 4px;
-      color: #94a3b8;
-      font-size: 11px;
-      cursor: pointer;
+      text-decoration: none;
       transition: all 0.2s;
+      margin-top: 8px;
     }
 
-    .focus-tab-btn:hover {
-      background: rgba(0, 212, 255, 0.2);
-      color: #00d4ff;
+    .github-link:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #8b5cf6;
+      border-color: rgba(139, 92, 246, 0.3);
+      transform: translateY(-1px);
     }
 
-    .close-tab-btn:hover {
-      background: rgba(239, 68, 68, 0.2);
-      color: #ef4444;
+    .github-link svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    /* 响应式 */
+    @media (max-width: 400px) {
+      .header {
+        padding: 12px 16px;
+      }
+
+      .tabs {
+        padding: 8px 16px;
+      }
+
+      .panel {
+        padding: 16px;
+      }
     }
   </style>
 </head>
 
 <body>
-  <!-- 主内容区 -->
-  <div class="main-area">
-    <!-- 顶部工具栏 -->
-    <div class="toolbar">
-      <div class="status-indicator">
-        <span class="status-label">MCP Server</span>
-        <div class="indicator-dot" id="statusDot"></div>
-        <span class="status-text" id="statusText">Disconnected</span>
-        <button class="btn-reconnect" id="btnReconnect">Connect</button>
-        <button class="btn-disconnect" id="btnDisconnect" style="display: none;">Disconnect</button>
+  <!-- 顶部状态栏 -->
+  <div class="header">
+    <div class="status-bar">
+      <div class="status-main">
+        <div class="status-dot" id="statusDot"></div>
+        <div class="status-info">
+          <div class="status-label">MCP Server</div>
+          <div class="status-text" id="statusText">Disconnected</div>
+        </div>
+      </div>
+      <div class="status-actions">
+        <button class="btn-action" id="btnReconnect">Connect</button>
+        <button class="btn-action" id="btnDisconnect" style="display: none;">Disconnect</button>
       </div>
     </div>
+  </div>
 
-    <!-- 顶部标签栏 -->
-    <div class="sidebar-tabs">
-      <button class="tab-icon active" data-panel="sessions" title="Active Sessions">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="3" y="3" width="7" height="7"></rect>
-          <rect x="14" y="3" width="7" height="7"></rect>
-          <rect x="14" y="14" width="7" height="7"></rect>
-          <rect x="3" y="14" width="7" height="7"></rect>
-        </svg>
-      </button>
-      <button class="tab-icon" data-panel="logs" title="Task Log">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-          <polyline points="14 2 14 8 20 8"></polyline>
-          <line x1="16" y1="13" x2="8" y2="13"></line>
-          <line x1="16" y1="17" x2="8" y2="17"></line>
-          <polyline points="10 9 9 9 8 9"></polyline>
-        </svg>
-      </button>
-      <button class="tab-icon" data-panel="settings" title="Settings">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="3"></circle>
-          <path
-            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
-          </path>
-        </svg>
-      </button>
-    </div>
+  <!-- 标签导航 -->
+  <div class="tabs">
+    <button class="tab active" data-panel="logs">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+        <polyline points="14 2 14 8 20 8"></polyline>
+        <line x1="16" y1="13" x2="8" y2="13"></line>
+        <line x1="16" y1="17" x2="8" y2="17"></line>
+      </svg>
+      <span>Activity</span>
+    </button>
+    <button class="tab" data-panel="settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+      </svg>
+      <span>Settings</span>
+    </button>
+  </div>
 
-    <!-- 内容区域 -->
-    <div class="content">
-      <!-- Sessions 面板 -->
-      <div class="panel active" id="panelSessions">
-        <div class="sessions-container">
-          <h3 class="sessions-title">Active Sessions</h3>
-          <div class="sessions-list" id="sessionsList">
-            <div class="empty-sessions">No active sessions</div>
+  <!-- 内容区域 -->
+  <div class="content">
+    <!-- Task Log 面板 -->
+    <div class="panel active" id="panelLogs">
+      <div class="log-panel">
+        <div class="log-header">
+          <div class="log-title">
+            <span>Task Log</span>
+            <span class="log-badge" id="logCount">0</span>
+          </div>
+          <button class="btn-clear" id="btnClear">Clear All</button>
+        </div>
+        <div class="log-container" id="logContainer">
+          <div class="empty-log">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+            </svg>
+            <div>Waiting for tasks...</div>
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- Task Log 面板 -->
-      <div class="panel" id="panelLogs">
-        <div class="log-header">
-          <button class="btn-clear" id="btnClear">Clear</button>
-        </div>
-        <div class="log-container" id="logContainer">
-          <div class="empty-log">Waiting for tasks...</div>
-        </div>
-      </div>
-
-      <!-- Settings 面板 -->
-      <div class="panel" id="panelSettings">
+    <!-- Settings 面板 -->
+    <div class="panel" id="panelSettings">
+      <div class="settings-panel">
         <div class="settings-section">
-          <div class="settings-title">MCP Server Connection</div>
+          <div class="settings-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="1" x2="12" y2="23"></line>
+              <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+            </svg>
+            Connection
+          </div>
           <div class="form-group">
             <label class="form-label">Host Address</label>
             <input type="text" class="form-input" id="inputHost" placeholder="127.0.0.1" value="127.0.0.1">
-            <div class="form-hint">IP address to connect to MCP Server (only editable when disconnected)</div>
+            <div class="form-hint">MCP Server host address (only editable when disconnected)</div>
           </div>
           <div class="form-group">
             <label class="form-label">Port</label>
@@ -614,18 +605,26 @@
         </div>
 
         <div class="settings-section">
-          <div class="settings-title">About</div>
-          <div style="margin-bottom: 12px; font-size: 13px; color: #94a3b8;">
-            Version: <span id="versionText">-</span>
-          </div>
-          <a href="https://github.com/agents-cc/browser-agent-extension" target="_blank"
-             style="display: inline-flex; align-items: center; gap: 8px; color: #94a3b8; font-size: 13px; text-decoration: none; transition: color 0.2s;"
-             onmouseover="this.style.color='#00d4ff'" onmouseout="this.style.color='#94a3b8'">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-              <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+          <div class="settings-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="16" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12.01" y2="8"></line>
             </svg>
-            GitHub
-          </a>
+            About
+          </div>
+          <div class="about-content">
+            <div class="about-item">
+              <span class="about-label">Version</span>
+              <span class="about-value" id="versionText">-</span>
+            </div>
+            <a href="https://github.com/agents-cc/browser-agent-extension" target="_blank" class="github-link">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+              </svg>
+              <span>View on GitHub</span>
+            </a>
+          </div>
         </div>
       </div>
     </div>
