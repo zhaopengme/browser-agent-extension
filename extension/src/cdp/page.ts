@@ -55,7 +55,7 @@ export class Page {
 
   // 弹窗队列
   private pendingDialogs: DialogInfo[] = [];
-  private dialogHandler: ((accept: boolean, promptText?: string) => void) | null = null;
+  private acceptingBeforeUnload: boolean = false;
 
   constructor(tabId: number) {
     this.tabId = tabId;
@@ -106,6 +106,35 @@ export class Page {
   }
 
   /**
+   * 注册一次性 beforeunload 弹窗自动接受监听器，处理后自动移除，超时兜底清理
+   */
+  private autoAcceptBeforeUnload(timeoutMs: number = 3000): void {
+    this.acceptingBeforeUnload = true;
+    let removed = false;
+    const cleanup = () => {
+      if (!removed) {
+        removed = true;
+        this.acceptingBeforeUnload = false;
+        this.transport.off(listener);
+      }
+    };
+    const listener = (method: string, params?: unknown) => {
+      if (method === 'Page.javascriptDialogOpening') {
+        const dialogParams = params as { type: string };
+        if (dialogParams?.type === 'beforeunload') {
+          this.transport.send('Page.handleJavaScriptDialog', { accept: true }).catch(() => {});
+          // 清除 setupDialogHandler 推入的脏数据
+          const idx = this.pendingDialogs.findIndex(d => d.type === 'beforeunload');
+          if (idx !== -1) this.pendingDialogs.splice(idx, 1);
+          cleanup();
+        }
+      }
+    };
+    this.transport.on(listener);
+    setTimeout(cleanup, timeoutMs);
+  }
+
+  /**
    * 关闭页面连接
    */
   async close(): Promise<void> {
@@ -135,6 +164,7 @@ export class Page {
    * 导航到指定 URL
    */
   async navigateTo(url: string): Promise<{ frameId: string; loaderId: string }> {
+    this.autoAcceptBeforeUnload();
     const result = await this.transport.send<{ frameId: string; loaderId: string }>(
       'Page.navigate',
       { url }
@@ -168,6 +198,7 @@ export class Page {
    * 后退
    */
   async goBack(): Promise<void> {
+    this.autoAcceptBeforeUnload();
     const history = await this.transport.send<{ currentIndex: number; entries: unknown[] }>(
       'Page.getNavigationHistory'
     );
@@ -183,6 +214,7 @@ export class Page {
    * 前进
    */
   async goForward(): Promise<void> {
+    this.autoAcceptBeforeUnload();
     const history = await this.transport.send<{ currentIndex: number; entries: unknown[] }>(
       'Page.getNavigationHistory'
     );
@@ -198,6 +230,7 @@ export class Page {
    * 刷新页面
    */
   async reload(): Promise<void> {
+    this.autoAcceptBeforeUnload();
     await this.transport.send('Page.reload');
   }
 
@@ -1365,8 +1398,13 @@ export class Page {
       this.transport.off(this.autoDialogListener);
     }
 
-    this.autoDialogListener = (method: string) => {
+    this.autoDialogListener = (method: string, params?: unknown) => {
       if (method === 'Page.javascriptDialogOpening') {
+        // 导航期间 beforeunload 由 autoAcceptBeforeUnload 专门处理，避免冲突
+        if (this.acceptingBeforeUnload) {
+          const dialogParams = params as { type: string };
+          if (dialogParams?.type === 'beforeunload') return;
+        }
         this.transport.send('Page.handleJavaScriptDialog', {
           accept: handler === 'accept',
         }).catch(() => {});
