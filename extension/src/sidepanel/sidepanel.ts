@@ -6,6 +6,7 @@
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 3026;
 const RECONNECT_DELAY = 5000;
+const MAX_RECONNECT_ATTEMPTS = 10;
 const STORAGE_KEY = 'browserAgentSettings';
 
 interface Settings {
@@ -75,6 +76,7 @@ const versionText = document.getElementById('versionText') as HTMLSpanElement;
 
 let ws: WebSocket | null = null;
 let reconnectTimer: number | null = null;
+let reconnectAttempts = 0;
 let logEntryCount = 0;
 
 /**
@@ -199,6 +201,7 @@ function connect(): void {
 
     ws.onopen = () => {
       console.log('[SidePanel] WebSocket connected');
+      reconnectAttempts = 0; // Reset retry counter on successful connection
       updateStatus('connected');
       addLog('system', 'Connected to MCP Server', 'success');
 
@@ -311,6 +314,7 @@ function connect(): void {
 
     ws.onclose = () => {
       console.log('[SidePanel] WebSocket disconnected');
+      ws = null;
       updateStatus('disconnected');
       addLog('system', 'Disconnected from MCP Server', 'error');
       scheduleReconnect();
@@ -335,7 +339,14 @@ function scheduleReconnect(): void {
     reconnectTimer = null;
   }
 
-  addLog('system', `Reconnecting in ${RECONNECT_DELAY / 1000}s...`, 'pending');
+  // 检查是否超过最大重试次数
+  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    addLog('system', 'Max reconnect attempts reached, stopped', 'error');
+    return;
+  }
+
+  reconnectAttempts++;
+  addLog('system', `Reconnecting in ${RECONNECT_DELAY / 1000}s... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`, 'pending');
 
   reconnectTimer = window.setTimeout(() => {
     console.log('[SidePanel] Attempting to reconnect...');
@@ -347,6 +358,7 @@ function scheduleReconnect(): void {
  * 手动重连
  */
 function manualReconnect(): void {
+  reconnectAttempts = 0; // Reset retry counter on manual reconnect
   btnReconnect.disabled = true;
   addLog('system', 'Manual reconnect...', 'pending');
   connect();
@@ -414,3 +426,8 @@ initSettings();
 connect();
 
 console.log('[SidePanel] Side Panel loaded');
+
+// 定期打印内存统计（每5分钟）
+setInterval(() => {
+  console.log('[MemoryStats] WebSocket state:', ws?.readyState, 'Reconnect attempts:', reconnectAttempts, 'Log entries:', logEntryCount);
+}, 300000);

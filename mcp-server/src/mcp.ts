@@ -412,7 +412,7 @@ async function sendViaDaemon(action: string, params?: Record<string, unknown>): 
     const timeout = setTimeout(() => {
       pendingRequests.delete(id);
       reject(new Error(`Request timeout: ${action}`));
-    }, 30000); // 30秒超时
+    }, 60000); // 60秒超时
 
     pendingRequests.set(id, { resolve, reject, timeout });
 

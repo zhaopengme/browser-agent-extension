@@ -190,7 +190,23 @@ export class BrowserContext {
       }, 10000);
     });
   }
+
+  /**
+   * 获取内存统计信息
+   */
+  getMemoryStats(): { pages: number; tabIds: number[] } {
+    return {
+      pages: this.pages.size,
+      tabIds: Array.from(this.pages.keys()),
+    };
+  }
 }
 
 // 导出单例
 export const browserContext = new BrowserContext();
+
+// 定期打印内存统计（每5分钟）
+setInterval(() => {
+  const stats = browserContext.getMemoryStats();
+  console.log('[MemoryStats] Cached pages:', stats.pages, 'Tab IDs:', stats.tabIds);
+}, 300000);

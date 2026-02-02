@@ -25,7 +25,7 @@ const PID_FILE = process.env.BROWSER_AGENT_DAEMON_PID || `${SOCKET_PATH}.pid`;
 const WS_HOST = process.env.BROWSER_AGENT_WS_HOST || '0.0.0.0';
 const WS_PORT = process.env.BROWSER_AGENT_WS_PORT ? parseInt(process.env.BROWSER_AGENT_WS_PORT) : 3026;
 const IDLE_TIMEOUT = 60000; // 60 seconds
-const REQUEST_TIMEOUT = 30000; // 30 seconds
+const REQUEST_TIMEOUT = 60000; // 60 seconds
 const MAX_SESSIONS = 100;
 const MAX_BUFFER_SIZE = 1024 * 1024; // 1MB
 
@@ -221,8 +221,10 @@ function startWebSocketServer(): void {
     });
 
     // Use this as the shared extension connection
-    if (!sharedExtensionWs) {
+    // Replace if no shared connection exists OR if existing one is closed/closing
+    if (!sharedExtensionWs || sharedExtensionWs.readyState !== WebSocket.OPEN) {
       sharedExtensionWs = ws;
+      sharedExtensionReady = false; // Reset ready state for new connection
     }
   });
 
@@ -713,6 +715,11 @@ export function runDaemon(options: { dryRun?: boolean } = {}): void {
 
   // Start idle timer
   resetIdleTimer();
+
+  // Start memory stats logging (every 5 minutes)
+  setInterval(() => {
+    console.error(`[MemoryStats] Sessions: ${sessions.size}, Pending requests: ${pendingRequests.size}, Extension connected: ${isExtensionConnected()}`);
+  }, 300000);
 
   console.error('[Daemon] Daemon started successfully');
 }

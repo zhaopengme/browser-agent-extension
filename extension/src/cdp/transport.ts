@@ -46,20 +46,35 @@ export class ExtensionTransport {
   }
 
   /**
-   * 发送 CDP 命令
+   * 发送 CDP 命令（带自动重连）
    */
   async send<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T> {
+    // 如果未连接，尝试重新连接
     if (!this.attached) {
-      throw new Error('Debugger not attached');
+      try {
+        await this.attach();
+        console.log(`[Transport] Re-attached to tab ${this.tabId}`);
+      } catch (error) {
+        throw new Error(`Failed to re-attach: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     }
 
-    const result = await chrome.debugger.sendCommand(
-      { tabId: this.tabId },
-      method,
-      params
-    );
-
-    return result as T;
+    try {
+      const result = await chrome.debugger.sendCommand(
+        { tabId: this.tabId },
+        method,
+        params
+      );
+      return result as T;
+    } catch (error) {
+      // 检查是否是连接相关的错误
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('detached') || errorMessage.includes('closed')) {
+        this.attached = false;
+        throw new Error(`CDP connection lost: ${errorMessage}`);
+      }
+      throw error;
+    }
   }
 
   /**
