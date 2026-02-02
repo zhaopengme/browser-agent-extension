@@ -28,6 +28,7 @@ const IDLE_TIMEOUT = 60000; // 60 seconds
 const REQUEST_TIMEOUT = 60000; // 60 seconds
 const MAX_SESSIONS = 100;
 const MAX_BUFFER_SIZE = 1024 * 1024; // 1MB
+const LOG_FILE = process.env.BROWSER_AGENT_LOG_FILE || '/tmp/browser-agent.log';
 
 // Types
 interface Session {
@@ -56,11 +57,17 @@ interface ExtensionMessage {
   type: 'HELLO' | 'RESPONSE' | 'SESSION_START' | 'SESSION_END';
   id?: string;
   sessionId?: string;
-  payload?: {
-    success: boolean;
-    data?: unknown;
-    error?: string;
-  };
+}
+
+// Logging
+function writeMcpLog(type: 'CALL' | 'DONE', action: string, details?: Record<string, unknown>): void {
+  const timestamp = new Date().toISOString();
+  const logEntry = `${timestamp} MCP_${type} action=${action}${details ? ' ' + JSON.stringify(details) : ''}\n`;
+  try {
+    fs.appendFileSync(LOG_FILE, logEntry, 'utf8');
+  } catch (error) {
+    console.error(`[Daemon] Failed to write MCP log:`, error);
+  }
 }
 
 // State
@@ -362,8 +369,17 @@ async function handleRequest(socket: net.Socket, message: DaemonMessage): Promis
     return;
   }
 
+  // 记录 MCP 调用开始
+  writeMcpLog('CALL', action, params ? { params } : undefined);
+  const startTime = Date.now();
+
   try {
     const result = await sendToExtension(sessionId, id, action, params);
+    const duration = Date.now() - startTime;
+
+    // 记录 MCP 调用成功
+    writeMcpLog('DONE', action, { duration, success: true });
+
     sendToClient(socket, {
       type: 'RESPONSE',
       id,
@@ -371,7 +387,12 @@ async function handleRequest(socket: net.Socket, message: DaemonMessage): Promis
       payload: { success: true, data: result },
     });
   } catch (error) {
+    const duration = Date.now() - startTime;
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+    // 记录 MCP 调用失败
+    writeMcpLog('DONE', action, { duration, success: false, error: errorMessage });
+
     sendToClient(socket, {
       type: 'RESPONSE',
       id,
