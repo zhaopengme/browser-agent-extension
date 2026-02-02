@@ -29,3 +29,6 @@ pnpm-debug.log*
 *.tsbuildinfo
 
 *.zip
+
+# Runtime files
+.run/
