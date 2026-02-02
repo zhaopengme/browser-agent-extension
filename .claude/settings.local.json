@@ -5,13 +5,17 @@
       "WebSearch",
       "WebFetch(domain:developers.weixin.qq.com)",
       "mcp__browser-agent__browser_get_dom_tree",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(bun --version:*)",
+      "Bash(head -20})",
+      "Bash(bun build:*)"
     ],
     "deny": [],
     "ask": []
   },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "browser-agent"
-  ],
-  "enableAllProjectMcpServers": true
+  ]
 }

@@ -9,6 +9,15 @@ export class BrowserContext {
   private pages: Map<number, Page> = new Map();
 
   /**
+   * 检查URL是否是受限页面 (chrome://, chrome-extension://等)
+   */
+  private isRestrictedUrl(url: string | undefined): boolean {
+    if (!url) return false;
+    const restrictedPrefixes = ['chrome://', 'chrome-extension://', 'devtools://', 'edge://', 'about:'];
+    return restrictedPrefixes.some(prefix => url.startsWith(prefix));
+  }
+
+  /**
    * 获取当前活动标签页
    */
   async getActivePage(): Promise<Page> {
@@ -16,6 +25,18 @@ export class BrowserContext {
 
     if (!tab || !tab.id) {
       throw new Error('No active tab found');
+    }
+
+    // 检查是否是受限页面，如果是则创建新标签页
+    if (this.isRestrictedUrl(tab.url)) {
+      console.log(`[BrowserContext] Active tab is restricted (${tab.url}), creating new tab`);
+      const newTab = await chrome.tabs.create({ active: true });
+      if (!newTab.id) {
+        throw new Error('Failed to create new tab');
+      }
+      // 等待新标签页初始化
+      await new Promise(resolve => setTimeout(resolve, 500));
+      return this.getOrCreatePage(newTab.id);
     }
 
     return this.getOrCreatePage(tab.id);

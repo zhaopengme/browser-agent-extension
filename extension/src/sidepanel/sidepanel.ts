@@ -201,6 +201,11 @@ function connect(): void {
       console.log('[SidePanel] WebSocket connected');
       updateStatus('connected');
       addLog('system', 'Connected to MCP Server', 'success');
+
+      // Send HELLO message to complete handshake
+      const helloMessage = { type: 'HELLO' };
+      ws?.send(JSON.stringify(helloMessage));
+      console.log('[SidePanel] Handshake message sent');
     };
 
     ws.onmessage = async (event) => {
@@ -244,10 +249,17 @@ function connect(): void {
               const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
               tabId = activeTab?.id;
 
-              if (!tabId) {
-                // 没有活动标签时创建一个新标签
+              // 检查当前标签页是否是受限URL (chrome://, chrome-extension://等)
+              const restrictedPrefixes = ['chrome://', 'chrome-extension://', 'devtools://', 'edge://', 'about:'];
+              const isRestrictedUrl = activeTab?.url && restrictedPrefixes.some(prefix => activeTab.url!.startsWith(prefix));
+
+              if (!tabId || isRestrictedUrl) {
+                // 没有活动标签或是受限页面时，创建一个新标签
+                console.log('[SidePanel] Creating new tab (no active tab or restricted URL)');
                 const tab = await chrome.tabs.create({ active: true });
                 tabId = tab.id;
+                // 等待新标签页加载完成
+                await new Promise(resolve => setTimeout(resolve, 500));
               }
             } catch (error) {
               console.error('[SidePanel] Failed to get active tab:', error);

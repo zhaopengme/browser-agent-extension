@@ -53,9 +53,9 @@ interface DaemonMessage {
 }
 
 interface ExtensionMessage {
-  type: 'RESPONSE' | 'SESSION_START' | 'SESSION_END';
+  type: 'HELLO' | 'RESPONSE' | 'SESSION_START' | 'SESSION_END';
   id?: string;
-  sessionId: string;
+  sessionId?: string;
   payload?: {
     success: boolean;
     data?: unknown;
@@ -74,18 +74,23 @@ const extensionConnections = new Map<string, WebSocket>();
 // Shared extension connection (when multiple sessions share one extension)
 let sharedExtensionWs: WebSocket | null = null;
 
+// Track if extension has completed handshake (sent HELLO)
+let sharedExtensionReady = false;
+
 let unixServer: net.Server | null = null;
 let wsServer: WebSocketServer | null = null;
 let idleTimer: NodeJS.Timeout | null = null;
 
 /**
- * Check if any extension WebSocket is connected
+ * Check if any extension WebSocket is connected and ready
  */
 function isExtensionConnected(): boolean {
-  if (sharedExtensionWs && sharedExtensionWs.readyState === WebSocket.OPEN) {
+  // Check shared extension - must be connected AND ready (handshake completed)
+  if (sharedExtensionWs && sharedExtensionWs.readyState === WebSocket.OPEN && sharedExtensionReady) {
     return true;
   }
 
+  // Check session-specific extensions
   for (const ws of extensionConnections.values()) {
     if (ws.readyState === WebSocket.OPEN) {
       return true;
@@ -154,6 +159,15 @@ function startWebSocketServer(): void {
       try {
         const message = JSON.parse(data.toString()) as ExtensionMessage;
 
+        // Handle HELLO message from extension (handshake)
+        if (message.type === 'HELLO') {
+          if (sharedExtensionWs === ws) {
+            sharedExtensionReady = true;
+            console.error('[Daemon] Extension handshake completed, ready to accept requests');
+          }
+          return;
+        }
+
         // Handle different message types from extension
         if (message.type === 'RESPONSE' && message.id) {
           const pending = pendingRequests.get(message.id);
@@ -191,6 +205,7 @@ function startWebSocketServer(): void {
 
       if (sharedExtensionWs === ws) {
         sharedExtensionWs = null;
+        sharedExtensionReady = false;
       }
 
       // Clear all pending requests
