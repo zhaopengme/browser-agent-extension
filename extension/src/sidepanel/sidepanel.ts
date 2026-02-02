@@ -5,8 +5,7 @@
 
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 3026;
-const RECONNECT_DELAY = 3000;
-const MAX_RETRIES = 1;
+const RECONNECT_DELAY = 5000;
 const STORAGE_KEY = 'browserAgentSettings';
 
 interface Settings {
@@ -76,7 +75,6 @@ const versionText = document.getElementById('versionText') as HTMLSpanElement;
 
 let ws: WebSocket | null = null;
 let reconnectTimer: number | null = null;
-let retryCount = 0;
 let logEntryCount = 0;
 
 /**
@@ -201,7 +199,6 @@ function connect(): void {
 
     ws.onopen = () => {
       console.log('[SidePanel] WebSocket connected');
-      retryCount = 0;
       updateStatus('connected');
       addLog('system', 'Connected to MCP Server', 'success');
     };
@@ -326,15 +323,7 @@ function scheduleReconnect(): void {
     reconnectTimer = null;
   }
 
-  retryCount++;
-
-  if (retryCount >= MAX_RETRIES) {
-    console.log('[SidePanel] Max retries reached, stopping auto-reconnect');
-    addLog('system', `Connection failed after ${MAX_RETRIES} attempts`, 'error');
-    return;
-  }
-
-  addLog('system', `Reconnecting in ${RECONNECT_DELAY / 1000}s... (${retryCount}/${MAX_RETRIES})`, 'pending');
+  addLog('system', `Reconnecting in ${RECONNECT_DELAY / 1000}s...`, 'pending');
 
   reconnectTimer = window.setTimeout(() => {
     console.log('[SidePanel] Attempting to reconnect...');
@@ -346,7 +335,6 @@ function scheduleReconnect(): void {
  * 手动重连
  */
 function manualReconnect(): void {
-  retryCount = 0;
   btnReconnect.disabled = true;
   addLog('system', 'Manual reconnect...', 'pending');
   connect();
@@ -361,7 +349,6 @@ function disconnect(): void {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
-  retryCount = MAX_RETRIES; // 阻止自动重连
 
   if (ws) {
     ws.close();

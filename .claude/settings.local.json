@@ -10,8 +10,8 @@
     "deny": [],
     "ask": []
   },
-  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "browser-agent"
-  ]
+  ],
+  "enableAllProjectMcpServers": true
 }
