@@ -16,13 +16,10 @@ export const wsHandler = upgradeWebSocket((c: Context) => {
     onOpen: (event: Event, ws: WSContext) => {
       console.error('[WS] Extension connection attempt');
 
-      // Force check if existing connection is still alive
+      // If there's an existing connection, we will replace it
+      // This handles cases where the old connection is dead but not cleaned up
       if (bridgeStore.isConnected()) {
-        const state = bridgeStore.getState();
-        console.error(`[WS] Extension already connected (state: ${state.status}), rejecting new connection`);
-        ws.close(1000, 'Another extension is already connected');
-        // Note: onClose will be called, but isAccepted is false so we won't try to remove it
-        return;
+        console.error('[WS] Replacing existing extension connection');
       }
 
       console.error('[WS] Extension connection established, waiting for HELLO handshake');
@@ -46,16 +43,11 @@ export const wsHandler = upgradeWebSocket((c: Context) => {
             helloTimer = null;
           }
 
-          // Check again if another connection was established while waiting
-          if (bridgeStore.isConnected()) {
-            console.error('[WS] Another extension connected during handshake, closing this connection');
-            ws.close(1000, 'Another extension is already connected');
-            return;
-          }
-
           console.error(`[WS] Extension handshake completed, version: ${message.version}`);
           isAccepted = true; // Mark this connection as accepted
-          bridgeStore.setExtension(ws);
+
+          // Force replace any existing connection
+          bridgeStore.setExtension(ws, true);
           return;
         }
 

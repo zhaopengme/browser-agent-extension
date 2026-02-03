@@ -35,9 +35,33 @@ export class BridgeStore {
     return this.state.status === 'ready';
   }
 
-  setExtension(ws: WSContext): void {
+  setExtension(ws: WSContext, force: boolean = false): void {
+    // If there's an existing connection and we're forcing, close the old one
+    if (force && this.extensionWs && this.extensionWs !== ws) {
+      console.error('[BridgeStore] Force replacing existing extension connection');
+      // Close old connection if possible
+      try {
+        const oldWs = this.extensionWs as unknown as WebSocket;
+        if (oldWs.readyState === 1) {
+          oldWs.close(1000, 'Replaced by new connection');
+        }
+      } catch {
+        // Ignore errors
+      }
+      // Clean up pending requests
+      if (this.pendingRequests.size > 0) {
+        console.error(`[BridgeStore] Rejecting ${this.pendingRequests.size} pending requests due to replacement`);
+        for (const [id, pending] of this.pendingRequests) {
+          clearTimeout(pending.timeout);
+          pending.reject(new Error('Extension connection replaced'));
+        }
+        this.pendingRequests.clear();
+      }
+    }
+
     this.extensionWs = ws;
     this.state = { status: 'ready' };
+    console.error('[BridgeStore] Extension connection accepted');
   }
 
   removeExtension(ws: WSContext): void {
