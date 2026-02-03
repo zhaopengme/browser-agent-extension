@@ -59,19 +59,13 @@ export const wsHandler = upgradeWebSocket((c: Context) => {
 
         // Handle RESPONSE from extension
         if (message.type === 'RESPONSE') {
-          // Support both 'result' (ExtMessage type) and 'payload' (actual extension format)
-          const result = (message as any).result ?? (message as any).payload;
-          console.error(`[WS] RESPONSE received for id=${message.id}, result=${JSON.stringify(result).slice(0, 100)}`);
-          bridgeStore.resolveResponse(message.id, result);
+          bridgeStore.resolveResponse(message.id, message.payload);
           return;
         }
 
         // Handle ERROR from extension
         if (message.type === 'ERROR') {
-          // Support both 'error' (ExtMessage type) and 'payload.error' (actual extension format)
-          const error = (message as any).error ?? (message as any).payload?.error ?? 'Unknown error';
-          console.error(`[WS] ERROR received for id=${message.id}: ${error}`);
-          bridgeStore.rejectResponse(message.id, error);
+          bridgeStore.rejectResponse(message.id, message.payload.error);
           return;
         }
 

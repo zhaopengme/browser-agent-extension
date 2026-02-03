@@ -22,8 +22,8 @@ export interface BridgeResponse {
 // Messages from extension
 export type ExtMessage =
   | { type: 'HELLO'; version: string }
-  | { type: 'RESPONSE'; id: string; result: unknown }
-  | { type: 'ERROR'; id: string; error: string }
+  | { type: 'RESPONSE'; id: string; payload: unknown }
+  | { type: 'ERROR'; id: string; payload: { error: string } }
   | { type: 'STATUS'; connected: boolean };
 
 // Messages to extension
