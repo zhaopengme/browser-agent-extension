@@ -190,16 +190,33 @@ async function executeAction(action: string, params: Record<string, unknown>, ta
 
     case 'screenshot': {
       const format = (params.format as string) || 'png';
-      const quality = params.quality as number;
+      const quality = (params.quality as number) ?? 80;
       const fullPage = params.fullPage as boolean;
+      const maxWidth = params.maxWidth as number | undefined;
+
+      // Get viewport for potential scaling
+      const viewport = await page.getViewportSize();
+      let clip = undefined;
+
+      // Calculate scale if maxWidth is specified
+      if (maxWidth && viewport.width > maxWidth) {
+        const scale = maxWidth / viewport.width;
+        clip = {
+          x: 0,
+          y: 0,
+          width: viewport.width,
+          height: viewport.height,
+          scale: scale,
+        };
+      }
 
       const image = await page.captureScreenshot({
         format: format as 'png' | 'jpeg' | 'webp',
         quality,
         captureBeyondViewport: fullPage,
+        clip,
       });
 
-      const viewport = await page.getViewportSize();
       return { image, width: viewport.width, height: viewport.height };
     }
 
@@ -527,23 +544,35 @@ async function executeAction(action: string, params: Record<string, unknown>, ta
 }
 
 /**
+ * 获取目标标签页ID
+ */
+async function getTargetTabId(tabId?: number): Promise<number | undefined> {
+  if (tabId) return tabId;
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tab?.id;
+}
+
+/**
+ * 发送内容脚本消息
+ */
+async function sendContentMessage(tabId: number, message: unknown): Promise<void> {
+  await chrome.tabs.sendMessage(tabId, message);
+}
+
+/**
  * 显示操作遮罩层
  */
 async function showOverlay(status: string, tabId?: number): Promise<void> {
   try {
-    let targetTabId = tabId;
-    if (!targetTabId) {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      targetTabId = tab?.id;
-    }
+    const targetTabId = await getTargetTabId(tabId);
     if (targetTabId) {
-      await chrome.tabs.sendMessage(targetTabId, {
+      await sendContentMessage(targetTabId, {
         type: 'SHOW_OVERLAY',
         payload: { status },
       });
     }
-  } catch {
-    // 忽略错误
+  } catch (error) {
+    console.debug('[Background] showOverlay failed:', error);
   }
 }
 
@@ -552,16 +581,12 @@ async function showOverlay(status: string, tabId?: number): Promise<void> {
  */
 async function hideOverlay(tabId?: number): Promise<void> {
   try {
-    let targetTabId = tabId;
-    if (!targetTabId) {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      targetTabId = tab?.id;
-    }
+    const targetTabId = await getTargetTabId(tabId);
     if (targetTabId) {
-      await chrome.tabs.sendMessage(targetTabId, { type: 'HIDE_OVERLAY' });
+      await sendContentMessage(targetTabId, { type: 'HIDE_OVERLAY' });
     }
-  } catch {
-    // 忽略错误
+  } catch (error) {
+    console.debug('[Background] hideOverlay failed:', error);
   }
 }
 
@@ -570,19 +595,15 @@ async function hideOverlay(tabId?: number): Promise<void> {
  */
 async function updateOverlayStatus(status: string, shimmer?: boolean, tabId?: number): Promise<void> {
   try {
-    let targetTabId = tabId;
-    if (!targetTabId) {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      targetTabId = tab?.id;
-    }
+    const targetTabId = await getTargetTabId(tabId);
     if (targetTabId) {
-      await chrome.tabs.sendMessage(targetTabId, {
+      await sendContentMessage(targetTabId, {
         type: 'UPDATE_OVERLAY_STATUS',
         payload: { status, shimmer },
       });
     }
-  } catch {
-    // 忽略错误
+  } catch (error) {
+    console.debug('[Background] updateOverlayStatus failed:', error);
   }
 }
 
@@ -590,11 +611,7 @@ async function updateOverlayStatus(status: string, shimmer?: boolean, tabId?: nu
  * 通过索引点击元素
  */
 async function clickByIndex(index: number, tabId?: number): Promise<{ clicked: boolean; tagName?: string; text?: string }> {
-  let targetTabId = tabId;
-  if (!targetTabId) {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    targetTabId = tab?.id;
-  }
+  const targetTabId = await getTargetTabId(tabId);
   if (!targetTabId) {
     throw new Error('No active tab found');
   }
@@ -627,11 +644,7 @@ async function typeByIndex(
   clearFirst?: boolean,
   tabId?: number
 ): Promise<{ tagName?: string }> {
-  let targetTabId = tabId;
-  if (!targetTabId) {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    targetTabId = tab?.id;
-  }
+  const targetTabId = await getTargetTabId(tabId);
   if (!targetTabId) {
     throw new Error('No active tab found');
   }

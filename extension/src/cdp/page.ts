@@ -51,7 +51,9 @@ export class Page {
   // 网络请求存储
   private networkRequests: Map<string, StoredNetworkRequest> = new Map();
   private networkCaptureEnabled: boolean = false;
-  private maxNetworkRequests: number = 500;
+  private maxNetworkRequests: number = 100; // 减少从 500 到 100
+  private readonly networkRequestMaxAge: number = 5 * 60 * 1000; // 5 分钟过期
+  private networkCleanupInterval?: number;
 
   // 弹窗队列
   private pendingDialogs: DialogInfo[] = [];
@@ -867,6 +869,11 @@ export class Page {
       this.handleNetworkEvent(method, params);
     });
 
+    // 启动定期清理
+    this.networkCleanupInterval = window.setInterval(() => {
+      this.cleanupOldNetworkRequests();
+    }, 60000); // 每分钟清理一次
+
     this.networkCaptureEnabled = true;
   }
 
@@ -878,6 +885,32 @@ export class Page {
 
     await this.transport.send('Network.disable');
     this.networkCaptureEnabled = false;
+
+    // 停止清理定时器
+    if (this.networkCleanupInterval) {
+      clearInterval(this.networkCleanupInterval);
+      this.networkCleanupInterval = undefined;
+    }
+  }
+
+  /**
+   * 清理过期的网络请求
+   */
+  private cleanupOldNetworkRequests(): void {
+    const now = Date.now();
+    const cutoff = now - this.networkRequestMaxAge;
+    let cleaned = 0;
+
+    for (const [key, request] of this.networkRequests) {
+      if (request.timestamp < cutoff) {
+        this.networkRequests.delete(key);
+        cleaned++;
+      }
+    }
+
+    if (cleaned > 0) {
+      console.log(`[Page] Cleaned up ${cleaned} old network requests`);
+    }
   }
 
   /**

@@ -4,13 +4,22 @@ import type { WSContext } from 'hono/ws';
 import { logger } from '../utils/logger.js';
 import type { BridgeState, PendingRequest, ServerMessage } from './types.js';
 
+interface QueuedRequest {
+  payload: unknown;
+  resolve: (value: unknown) => void;
+  reject: (reason: Error) => void;
+}
+
 export class BridgeStore {
   private state: BridgeState = { status: 'idle' };
   private pendingRequests = new Map<string, PendingRequest>();
+  private requestQueue: QueuedRequest[] = [];
   private extensionWs: WSContext | null = null;
   private requestIdCounter = 0;
+  private processingQueue = false;
 
   private readonly REQUEST_TIMEOUT = 60000; // 60 seconds
+  private readonly MAX_QUEUE_SIZE = 10;
 
   getState(): BridgeState {
     return this.state;
@@ -32,6 +41,15 @@ export class BridgeStore {
         pending.reject(new Error('Extension disconnected'));
       }
       this.pendingRequests.clear();
+    }
+
+    // Reject all queued requests
+    if (this.requestQueue.length > 0) {
+      logger.warn('BridgeStore', `Rejecting ${this.requestQueue.length} queued requests due to disconnect`);
+      for (const queued of this.requestQueue) {
+        queued.reject(new Error('Extension disconnected'));
+      }
+      this.requestQueue = [];
     }
   }
 
@@ -108,14 +126,25 @@ export class BridgeStore {
       throw new Error('Browser extension not connected');
     }
 
+    // If busy, queue the request
     if (this.state.status === 'busy') {
-      throw new Error('Browser busy processing another request');
+      if (this.requestQueue.length >= this.MAX_QUEUE_SIZE) {
+        throw new Error(`Request queue full (max ${this.MAX_QUEUE_SIZE})`);
+      }
+      logger.info('BridgeStore', `Queueing request, queue size: ${this.requestQueue.length + 1}`);
+      return new Promise((resolve, reject) => {
+        this.requestQueue.push({ payload, resolve, reject });
+      });
     }
 
     if (!this.extensionWs) {
       throw new Error('Browser extension not connected');
     }
 
+    return this.executeRequest(payload);
+  }
+
+  private async executeRequest(payload: unknown): Promise<unknown> {
     const id = this.nextRequestId();
 
     return new Promise((resolve, reject) => {
@@ -123,6 +152,8 @@ export class BridgeStore {
         this.pendingRequests.delete(id);
         this.state = { status: 'ready' };
         reject(new Error('Request timeout'));
+        // Process next request in queue
+        this.processQueue();
       }, this.REQUEST_TIMEOUT);
 
       this.pendingRequests.set(id, { resolve, reject, timeout });
@@ -139,6 +170,25 @@ export class BridgeStore {
     });
   }
 
+  private async processQueue(): Promise<void> {
+    if (this.processingQueue || this.requestQueue.length === 0) return;
+    if (this.state.status !== 'ready') return;
+
+    this.processingQueue = true;
+
+    while (this.requestQueue.length > 0 && this.state.status === 'ready') {
+      const next = this.requestQueue.shift()!;
+      try {
+        const result = await this.executeRequest(next.payload);
+        next.resolve(result);
+      } catch (error) {
+        next.reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+
+    this.processingQueue = false;
+  }
+
   resolveResponse(id: string, result: unknown): void {
     const pending = this.pendingRequests.get(id);
     if (pending) {
@@ -146,6 +196,8 @@ export class BridgeStore {
       this.pendingRequests.delete(id);
       this.state = { status: 'ready' };
       pending.resolve(result);
+      // Process next request in queue
+      this.processQueue();
     } else {
       logger.warn('BridgeStore', `Received response for unknown/expired request: ${id}`);
     }
@@ -158,6 +210,8 @@ export class BridgeStore {
       this.pendingRequests.delete(id);
       this.state = { status: 'ready' };
       pending.reject(new Error(error));
+      // Process next request in queue
+      this.processQueue();
     } else {
       logger.warn('BridgeStore', `Received error for unknown/expired request: ${id}`);
     }

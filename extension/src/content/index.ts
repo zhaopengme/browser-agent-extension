@@ -699,6 +699,10 @@ function buildCompactDomTree(options: CompactDomTreeOptions = {}): string {
     return `# DOM Tree (0 elements)\n\nNo elements found${selector ? ` for selector: ${selector}` : ''}`;
   }
 
+  // 节点数限制
+  const MAX_NODES = 500;
+  let nodeCount = 0;
+
   /**
    * 获取元素的直接文本内容（不包括子元素的文本）
    */
@@ -719,6 +723,11 @@ function buildCompactDomTree(options: CompactDomTreeOptions = {}): string {
    */
   function collectNode(el: Element, depth: number, insideInteractive: boolean = false): InternalNode | null {
     if (depth > maxDepth) return null;
+
+    // 检查节点数限制
+    if (nodeCount >= MAX_NODES) {
+      return null;
+    }
 
     const tag = el.tagName.toLowerCase();
 
@@ -798,6 +807,7 @@ function buildCompactDomTree(options: CompactDomTreeOptions = {}): string {
     const needsOutput = interactive || (isTextTag && directText.length > 0) || (isLandmark && hasChildren);
 
     if (needsOutput) {
+      nodeCount++;
       return {
         element: el,
         tag,

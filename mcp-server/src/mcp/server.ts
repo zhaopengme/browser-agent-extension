@@ -61,6 +61,8 @@ const toolSchemas = {
     schema: z.object({
       fullPage: z.boolean().optional().describe('Capture full page'),
       format: z.enum(['png', 'jpeg', 'webp']).optional(),
+      quality: z.number().min(1).max(100).optional().describe('JPEG quality (1-100), default 80'),
+      maxWidth: z.number().optional().describe('Max width in pixels (scales down if larger)'),
     }),
   },
   browser_extract: {
