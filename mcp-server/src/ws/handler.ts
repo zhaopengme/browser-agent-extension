@@ -4,7 +4,6 @@ import type { Context } from 'hono';
 import { upgradeWebSocket } from 'hono/bun';
 import type { WSContext } from 'hono/ws';
 import { bridgeStore } from '../bridge/store.js';
-import type { ExtMessage } from '../bridge/types.js';
 
 const HELLO_TIMEOUT = 10000; // 10 seconds to send HELLO
 
@@ -35,43 +34,40 @@ export const wsHandler = upgradeWebSocket((c: Context) => {
 
     onMessage: (event: MessageEvent, ws: WSContext) => {
       try {
-        const message = JSON.parse(event.data as string) as ExtMessage;
+        const data = JSON.parse(event.data as string);
 
         // Handle HELLO message (handshake)
-        if (message.type === 'HELLO') {
+        if (data.type === 'HELLO') {
           // Clear timeout
           if (helloTimer) {
             clearTimeout(helloTimer);
             helloTimer = null;
           }
 
-          // Check again if another connection was established while waiting
-          if (bridgeStore.isConnected()) {
-            console.error('[WS] Another extension connected during handshake, closing this connection');
-            ws.close(1000, 'Another extension is already connected');
-            return;
-          }
-
-          console.error(`[WS] Extension handshake completed, version: ${message.version}`);
+          console.error(`[WS] Extension handshake completed, version: ${data.version}`);
           bridgeStore.setExtension(ws);
           return;
         }
 
         // Handle RESPONSE from extension
-        if (message.type === 'RESPONSE') {
-          bridgeStore.resolveResponse(message.id, message.payload);
+        if (data.type === 'RESPONSE') {
+          if (data.payload?.success) {
+            bridgeStore.resolveResponse(data.id, data.payload.data);
+          } else {
+            bridgeStore.rejectResponse(data.id, data.payload?.error || 'Unknown error');
+          }
           return;
         }
 
         // Handle ERROR from extension
-        if (message.type === 'ERROR') {
-          bridgeStore.rejectResponse(message.id, message.payload.error);
+        if (data.type === 'ERROR') {
+          bridgeStore.rejectResponse(data.id, data.payload?.error || 'Unknown error');
           return;
         }
 
         // Handle STATUS update
-        if (message.type === 'STATUS') {
-          console.error(`[WS] Extension status update: connected=${message.connected}`);
+        if (data.type === 'STATUS') {
+          console.error(`[WS] Extension status update: connected=${data.connected}`);
           return;
         }
       } catch (error) {

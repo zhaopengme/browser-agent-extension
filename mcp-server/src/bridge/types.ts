@@ -22,7 +22,7 @@ export interface BridgeResponse {
 // Messages from extension
 export type ExtMessage =
   | { type: 'HELLO'; version: string }
-  | { type: 'RESPONSE'; id: string; payload: unknown }
+  | { type: 'RESPONSE'; id: string; payload: { success: boolean; data?: unknown; error?: string } }
   | { type: 'ERROR'; id: string; payload: { error: string } }
   | { type: 'STATUS'; connected: boolean };
 
