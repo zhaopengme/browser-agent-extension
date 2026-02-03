@@ -20,10 +20,11 @@ export interface BridgeResponse {
 }
 
 // Messages from extension
+// Extension sends payload directly, not wrapped in {success, data}
 export type ExtMessage =
   | { type: 'HELLO'; version: string }
-  | { type: 'RESPONSE'; id: string; payload: { success: boolean; data?: unknown; error?: string } }
-  | { type: 'ERROR'; id: string; payload: { error: string } }
+  | { type: 'RESPONSE'; id: string; payload: unknown }
+  | { type: 'ERROR'; id: string; error: string }
   | { type: 'STATUS'; connected: boolean };
 
 // Messages to extension

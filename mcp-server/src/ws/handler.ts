@@ -50,18 +50,28 @@ export const wsHandler = upgradeWebSocket((c: Context) => {
         }
 
         // Handle RESPONSE from extension
+        // Extension format: { type: 'RESPONSE', id, payload: { success, data?, error? } }
         if (data.type === 'RESPONSE') {
-          if (data.payload?.success) {
-            bridgeStore.resolveResponse(data.id, data.payload.data);
+          const payload = data.payload;
+          // Check if payload has success field (new format) or is direct result (old format)
+          if (payload && typeof payload === 'object' && 'success' in payload) {
+            // New format with success flag
+            if (payload.success) {
+              bridgeStore.resolveResponse(data.id, payload.data);
+            } else {
+              bridgeStore.rejectResponse(data.id, payload.error || 'Unknown error');
+            }
           } else {
-            bridgeStore.rejectResponse(data.id, data.payload?.error || 'Unknown error');
+            // Old format - payload is the result directly
+            bridgeStore.resolveResponse(data.id, payload);
           }
           return;
         }
 
         // Handle ERROR from extension
         if (data.type === 'ERROR') {
-          bridgeStore.rejectResponse(data.id, data.payload?.error || 'Unknown error');
+          const errorMsg = data.payload?.error || data.error || 'Unknown error';
+          bridgeStore.rejectResponse(data.id, errorMsg);
           return;
         }
 
