@@ -1,11 +1,12 @@
 // mcp-server/src/bridge/store.ts
 
+import type { WSContext } from 'hono/ws';
 import type { BridgeState, PendingRequest, ServerMessage } from './types.js';
 
 export class BridgeStore {
   private state: BridgeState = { status: 'idle' };
   private pendingRequests = new Map<string, PendingRequest>();
-  private extensionWs: WebSocket | null = null;
+  private extensionWs: WSContext | null = null;
   private requestIdCounter = 0;
 
   private readonly REQUEST_TIMEOUT = 60000; // 60 seconds
@@ -22,12 +23,12 @@ export class BridgeStore {
     return this.state.status === 'ready';
   }
 
-  setExtension(ws: WebSocket): void {
+  setExtension(ws: WSContext): void {
     this.extensionWs = ws;
     this.state = { status: 'ready' };
   }
 
-  removeExtension(ws: WebSocket): void {
+  removeExtension(ws: WSContext): void {
     if (this.extensionWs === ws) {
       this.extensionWs = null;
       this.state = { status: 'idle' };
@@ -42,7 +43,8 @@ export class BridgeStore {
   }
 
   private nextRequestId(): string {
-    return `req_${++this.requestIdCounter}_${Date.now()}`;
+    const now = Date.now();
+    return 'req_' + (++this.requestIdCounter) + '_' + now;
   }
 
   async sendRequest(payload: unknown): Promise<unknown> {

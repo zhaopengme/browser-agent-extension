@@ -2,12 +2,13 @@
 
 import type { Context } from 'hono';
 import { upgradeWebSocket } from 'hono/bun';
+import type { WSContext } from 'hono/ws';
 import { bridgeStore } from '../bridge/store.js';
 import type { ExtMessage } from '../bridge/types.js';
 
 export const wsHandler = upgradeWebSocket((c: Context) => {
   return {
-    onOpen: (event, ws) => {
+    onOpen: (event: Event, ws: WSContext) => {
       console.error('[WS] Extension connection attempt');
 
       // Only accept one extension connection
@@ -20,7 +21,7 @@ export const wsHandler = upgradeWebSocket((c: Context) => {
       console.error('[WS] Extension connection established');
     },
 
-    onMessage: (event, ws) => {
+    onMessage: (event: MessageEvent, ws: WSContext) => {
       try {
         const message = JSON.parse(event.data as string) as ExtMessage;
 
@@ -53,12 +54,12 @@ export const wsHandler = upgradeWebSocket((c: Context) => {
       }
     },
 
-    onClose: (event, ws) => {
+    onClose: (event: CloseEvent, ws: WSContext) => {
       console.error('[WS] Extension disconnected');
       bridgeStore.removeExtension(ws);
     },
 
-    onError: (event, ws) => {
+    onError: (event: Event, ws: WSContext) => {
       console.error('[WS] WebSocket error:', event);
     },
   };
