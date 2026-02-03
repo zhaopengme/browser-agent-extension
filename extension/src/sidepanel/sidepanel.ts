@@ -32,14 +32,16 @@ function saveSettings(settings: Settings): void {
 
 function getWsUrl(): string {
   const settings = loadSettings();
-  return `ws://${settings.host}:${settings.port}`;
+  return `ws://${settings.host}:${settings.port}/ws`;
 }
 
 interface WSRequest {
   type: 'REQUEST';
   id: string;
-  action: string;
-  params?: Record<string, unknown>;
+  payload: {
+    action: string;
+    params?: Record<string, unknown>;
+  };
 }
 
 interface WSResponse {
@@ -205,7 +207,7 @@ function connect(): void {
       addLog('system', 'Connected to MCP Server', 'success');
 
       // Send HELLO message to complete handshake
-      const helloMessage = { type: 'HELLO' };
+      const helloMessage = { type: 'HELLO', version: chrome.runtime.getManifest().version };
       ws?.send(JSON.stringify(helloMessage));
       console.log('[SidePanel] Handshake message sent');
     };
@@ -217,8 +219,9 @@ function connect(): void {
         // 处理 REQUEST 消息
         if (message.type === 'REQUEST') {
           const request = message as WSRequest;
+          const { action, params } = request.payload;
 
-          addLog(request.action, JSON.stringify(request.params || {}).slice(0, 100));
+          addLog(action, JSON.stringify(params || {}).slice(0, 100));
 
           let tabId: number | undefined;
 
@@ -257,7 +260,7 @@ function connect(): void {
               }
             };
             ws?.send(JSON.stringify(errorResponse));
-            addLog(request.action, 'no active tab', 'error');
+            addLog(action, 'no active tab', 'error');
             return;
           }
 
@@ -265,8 +268,8 @@ function connect(): void {
           const response = await chrome.runtime.sendMessage({
             type: 'MCP_REQUEST',
             id: request.id,
-            action: request.action,
-            params: request.params || {},
+            action: action,
+            params: params || {},
             tabId: tabId,
           });
 
@@ -280,9 +283,9 @@ function connect(): void {
           ws?.send(JSON.stringify(wsResponse));
 
           if (response.success) {
-            addLog(request.action, 'completed', 'success');
+            addLog(action, 'completed', 'success');
           } else {
-            addLog(request.action, response.error || 'failed', 'error');
+            addLog(action, response.error || 'failed', 'error');
           }
         }
       } catch (error) {
