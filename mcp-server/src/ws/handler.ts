@@ -10,16 +10,24 @@ const HELLO_TIMEOUT = 10000; // 10 seconds to send HELLO
 
 export const wsHandler = upgradeWebSocket((c: Context) => {
   let helloTimer: ReturnType<typeof setTimeout> | null = null;
-  let isAccepted = false; // Track if this connection was accepted
+  let thisWs: WSContext | null = null;
 
   return {
     onOpen: (event: Event, ws: WSContext) => {
+      thisWs = ws;
       console.error('[WS] Extension connection attempt');
 
-      // If there's an existing connection, we will replace it
-      // This handles cases where the old connection is dead but not cleaned up
+      // Check if existing connection is still alive, clean up if not
       if (bridgeStore.isConnected()) {
-        console.error('[WS] Replacing existing extension connection');
+        console.error('[WS] Extension already connected, checking if alive...');
+        // The isConnected check should have cleaned up if dead, but let's verify
+        const stillConnected = bridgeStore.isConnected();
+        if (stillConnected) {
+          console.error('[WS] Extension already connected and alive, rejecting new connection');
+          ws.close(1000, 'Another extension is already connected');
+          return;
+        }
+        console.error('[WS] Dead connection cleaned up, accepting new connection');
       }
 
       console.error('[WS] Extension connection established, waiting for HELLO handshake');
@@ -43,17 +51,15 @@ export const wsHandler = upgradeWebSocket((c: Context) => {
             helloTimer = null;
           }
 
+          // Check again if another connection was established while waiting
+          if (bridgeStore.isConnected()) {
+            console.error('[WS] Another extension connected during handshake, closing this connection');
+            ws.close(1000, 'Another extension is already connected');
+            return;
+          }
+
           console.error(`[WS] Extension handshake completed, version: ${message.version}`);
-          isAccepted = true; // Mark this connection as accepted
-
-          // Force replace any existing connection
-          bridgeStore.setExtension(ws, true);
-          return;
-        }
-
-        // Only process other messages if connection is accepted
-        if (!isAccepted) {
-          console.error('[WS] Received message before HELLO, ignoring');
+          bridgeStore.setExtension(ws);
           return;
         }
 
@@ -86,14 +92,11 @@ export const wsHandler = upgradeWebSocket((c: Context) => {
         helloTimer = null;
       }
 
-      // Only remove from store if this was an accepted connection
-      if (isAccepted) {
-        console.error(`[WS] Extension disconnected (code: ${event.code}, reason: ${event.reason || 'No reason'})`);
-        bridgeStore.removeExtension(ws);
-      } else {
-        // Connection was never accepted (rejected or HELLO timeout)
-        console.error(`[WS] Rejected connection closed (code: ${event.code}, reason: ${event.reason || 'No reason'})`);
-      }
+      console.error(`[WS] Extension disconnected (code: ${event.code}, reason: ${event.reason || 'No reason'})`);
+
+      // Always try to remove - the store will check if it's the stored one
+      bridgeStore.removeExtension(ws);
+      thisWs = null;
     },
 
     onError: (event: Event, ws: WSContext) => {

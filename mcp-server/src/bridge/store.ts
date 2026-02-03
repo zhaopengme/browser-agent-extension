@@ -24,10 +24,44 @@ export class BridgeStore {
     const ws = this.extensionWs as unknown as WebSocket;
     if (ws.readyState !== 1) {
       // Connection is dead, clean it up
-      this.extensionWs = null;
-      this.state = { status: 'idle' };
+      console.error('[BridgeStore] Connection dead (readyState !== 1), cleaning up');
+      this.cleanup();
       return false;
     }
+    return true;
+  }
+
+  private cleanup(): void {
+    this.extensionWs = null;
+    this.state = { status: 'idle' };
+
+    // Reject all pending requests
+    if (this.pendingRequests.size > 0) {
+      console.error(`[BridgeStore] Rejecting ${this.pendingRequests.size} pending requests`);
+      for (const [id, pending] of this.pendingRequests) {
+        clearTimeout(pending.timeout);
+        pending.reject(new Error('Extension disconnected'));
+      }
+      this.pendingRequests.clear();
+    }
+  }
+
+  /**
+   * Try to ping the existing connection, clean it up if it fails
+   */
+  async checkAndCleanupDeadConnection(): Promise<boolean> {
+    if (this.extensionWs === null || this.state.status === 'idle') {
+      return false; // No connection to check
+    }
+
+    const ws = this.extensionWs as unknown as WebSocket;
+    if (ws.readyState !== 1) {
+      console.error('[BridgeStore] Dead connection detected, cleaning up');
+      this.cleanup();
+      return false;
+    }
+
+    // Connection appears to be alive
     return true;
   }
 
@@ -35,50 +69,15 @@ export class BridgeStore {
     return this.state.status === 'ready';
   }
 
-  setExtension(ws: WSContext, force: boolean = false): void {
-    // If there's an existing connection and we're forcing, close the old one
-    if (force && this.extensionWs && this.extensionWs !== ws) {
-      console.error('[BridgeStore] Force replacing existing extension connection');
-      // Close old connection if possible
-      try {
-        const oldWs = this.extensionWs as unknown as WebSocket;
-        if (oldWs.readyState === 1) {
-          oldWs.close(1000, 'Replaced by new connection');
-        }
-      } catch {
-        // Ignore errors
-      }
-      // Clean up pending requests
-      if (this.pendingRequests.size > 0) {
-        console.error(`[BridgeStore] Rejecting ${this.pendingRequests.size} pending requests due to replacement`);
-        for (const [id, pending] of this.pendingRequests) {
-          clearTimeout(pending.timeout);
-          pending.reject(new Error('Extension connection replaced'));
-        }
-        this.pendingRequests.clear();
-      }
-    }
-
+  setExtension(ws: WSContext): void {
     this.extensionWs = ws;
     this.state = { status: 'ready' };
-    console.error('[BridgeStore] Extension connection accepted');
   }
 
   removeExtension(ws: WSContext): void {
     if (this.extensionWs === ws) {
       console.error('[BridgeStore] Removing extension connection');
-      this.extensionWs = null;
-      this.state = { status: 'idle' };
-
-      // Reject all pending requests
-      if (this.pendingRequests.size > 0) {
-        console.error(`[BridgeStore] Rejecting ${this.pendingRequests.size} pending requests`);
-        for (const [id, pending] of this.pendingRequests) {
-          clearTimeout(pending.timeout);
-          pending.reject(new Error('Extension disconnected'));
-        }
-        this.pendingRequests.clear();
-      }
+      this.cleanup();
     } else {
       console.error('[BridgeStore] removeExtension called but ws does not match stored extension');
     }
