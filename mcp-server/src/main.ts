@@ -15,8 +15,12 @@ import { websocket } from 'hono/bun';
 import { mcpHandler } from './mcp/handler.js';
 import { wsHandler } from './ws/handler.js';
 import { bridgeStore } from './bridge/store.js';
+import { logger } from './middleware/logger.js';
 
 const app = new Hono();
+
+// 添加请求日志中间件
+app.use('*', logger);
 
 // MCP Streamable HTTP endpoint
 app.all('/mcp', mcpHandler);
@@ -46,5 +50,6 @@ console.error(`[Server] Health check: http://localhost:${PORT}/health`);
 export default {
   fetch: app.fetch,
   websocket,
+  idleTimeout: 255,
   port: PORT,
 };
