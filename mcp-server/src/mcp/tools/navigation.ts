@@ -1,7 +1,62 @@
 // mcp-server/src/mcp/tools/navigation.ts
 
+import { z } from 'zod';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
+// New Zod schemas for MCP SDK v1.25+
+export const navigationToolSchemas = {
+  browser_navigate: {
+    description: 'Navigate to a URL',
+    schema: z.object({
+      url: z.string().describe('URL to navigate to'),
+    }),
+  },
+  browser_click: {
+    description: 'Click on an element by index or selector',
+    schema: z.object({
+      index: z.number().optional().describe('Element index from DOM tree'),
+      selector: z.string().optional().describe('CSS selector'),
+    }),
+  },
+  browser_type: {
+    description: 'Type text into an input field',
+    schema: z.object({
+      index: z.number().optional().describe('Element index from DOM tree'),
+      selector: z.string().optional().describe('CSS selector'),
+      text: z.string().describe('Text to type'),
+      submit: z.boolean().optional().describe('Press Enter after typing'),
+      clear: z.boolean().optional().describe('Clear field before typing'),
+    }),
+  },
+  browser_scroll: {
+    description: 'Scroll the page',
+    schema: z.object({
+      direction: z.enum(['up', 'down', 'left', 'right']).optional(),
+      amount: z.number().optional().describe('Pixels to scroll'),
+      selector: z.string().optional().describe('Scroll specific element to view'),
+    }),
+  },
+  browser_press_key: {
+    description: 'Press a keyboard key',
+    schema: z.object({
+      key: z.string().describe('Key to press (e.g., "Enter", "Escape")'),
+    }),
+  },
+  browser_go_back: {
+    description: 'Navigate back in browser history',
+    schema: z.object({}),
+  },
+  browser_go_forward: {
+    description: 'Navigate forward in browser history',
+    schema: z.object({}),
+  },
+  browser_reload: {
+    description: 'Reload the current page',
+    schema: z.object({}),
+  },
+};
+
+// Legacy JSON Schema format for backwards compatibility
 export const navigationTools: Tool[] = [
   {
     name: 'browser_navigate',

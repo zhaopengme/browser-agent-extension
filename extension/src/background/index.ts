@@ -60,7 +60,7 @@ async function initialize(): Promise<void> {
  */
 async function handleMCPRequest(request: MCPRequest): Promise<MCPResponse> {
   const { action, params, tabId } = request;
-  console.log(`[Background] MCP Request: ${action}`, params, tabId ? `(tab: ${tabId})` : '');
+  console.log(`[Background] MCP Request: ${action}`, JSON.stringify(params), tabId ? `(tab: ${tabId})` : '');
 
   try {
     const result = await executeAction(action, params || {}, tabId);
@@ -105,6 +105,7 @@ async function executeAction(action: string, params: Record<string, unknown>, ta
 
   switch (action) {
     case 'navigate': {
+      console.log('[Background] Navigate params:', JSON.stringify(params), 'url:', params?.url);
       const url = params.url as string;
       if (!url) throw new Error('URL is required');
 

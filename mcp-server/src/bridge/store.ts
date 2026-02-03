@@ -133,6 +133,7 @@ export class BridgeStore {
         payload,
       };
 
+      console.error(`[Bridge] Sending message:`, JSON.stringify(message));
       this.extensionWs!.send(JSON.stringify(message));
     });
   }
