@@ -16,7 +16,19 @@ export class BridgeStore {
   }
 
   isConnected(): boolean {
-    return this.state.status !== 'idle' && this.extensionWs !== null;
+    // Check both state and actual WebSocket readyState
+    if (this.state.status === 'idle' || this.extensionWs === null) {
+      return false;
+    }
+    // Verify the WebSocket is actually open (readyState === 1)
+    const ws = this.extensionWs as unknown as WebSocket;
+    if (ws.readyState !== 1) {
+      // Connection is dead, clean it up
+      this.extensionWs = null;
+      this.state = { status: 'idle' };
+      return false;
+    }
+    return true;
   }
 
   isReady(): boolean {
@@ -30,15 +42,21 @@ export class BridgeStore {
 
   removeExtension(ws: WSContext): void {
     if (this.extensionWs === ws) {
+      console.error('[BridgeStore] Removing extension connection');
       this.extensionWs = null;
       this.state = { status: 'idle' };
 
       // Reject all pending requests
-      for (const [id, pending] of this.pendingRequests) {
-        clearTimeout(pending.timeout);
-        pending.reject(new Error('Extension disconnected'));
+      if (this.pendingRequests.size > 0) {
+        console.error(`[BridgeStore] Rejecting ${this.pendingRequests.size} pending requests`);
+        for (const [id, pending] of this.pendingRequests) {
+          clearTimeout(pending.timeout);
+          pending.reject(new Error('Extension disconnected'));
+        }
+        this.pendingRequests.clear();
       }
-      this.pendingRequests.clear();
+    } else {
+      console.error('[BridgeStore] removeExtension called but ws does not match stored extension');
     }
   }
 
