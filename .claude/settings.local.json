@@ -20,7 +20,8 @@
       "Bash(git commit:*)",
       "Bash(wc:*)",
       "Bash(chmod:*)",
-      "Bash(./ctl.sh)"
+      "Bash(./ctl.sh)",
+      "Bash(./run.sh)"
     ],
     "deny": [],
     "ask": []

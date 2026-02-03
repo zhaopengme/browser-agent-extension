@@ -1,24 +1,5 @@
 // mcp-server/src/mcp/tools/index.ts
 
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { navigationTools } from './navigation.js';
-import { infoTools } from './info.js';
-import { tabTools } from './tabs.js';
-import { networkTools } from './network.js';
-import { waitingTools } from './waiting.js';
-import { interactionTools } from './interaction.js';
-import { advancedTools } from './advanced.js';
-
-export const allTools: Tool[] = [
-  ...navigationTools,
-  ...infoTools,
-  ...tabTools,
-  ...networkTools,
-  ...waitingTools,
-  ...interactionTools,
-  ...advancedTools,
-];
-
 // Tool name to action mapping
 export function getActionFromToolName(toolName: string): string {
   const mapping: Record<string, string> = {

@@ -46,6 +46,14 @@ stop() {
     fi
 }
 
+logs() {
+    if [ ! -f "$LOG_FILE" ]; then
+        echo "日志文件不存在: $LOG_FILE"
+        exit 1
+    fi
+    tail -f "$LOG_FILE"
+}
+
 case "${1:-}" in
     start)
         start
@@ -53,8 +61,11 @@ case "${1:-}" in
     stop)
         stop
         ;;
+    logs)
+        logs
+        ;;
     *)
-        echo "用法: $0 {start|stop}"
+        echo "用法: $0 {start|stop|logs}"
         exit 1
         ;;
 esac

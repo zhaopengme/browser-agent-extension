@@ -3,33 +3,58 @@
 import type { Context } from 'hono';
 import { upgradeWebSocket } from 'hono/bun';
 import type { WSContext } from 'hono/ws';
+import { logger } from '../utils/logger.js';
 import { bridgeStore } from '../bridge/store.js';
 import type { ExtMessage, ExtResponsePayload } from '../bridge/types.js';
 
-const HELLO_TIMEOUT = 10000; // 10 seconds to send HELLO
+const HELLO_TIMEOUT = parseInt(process.env.HELLO_TIMEOUT || '10000', 10);
+
+// Connection lock to prevent race conditions during connection establishment
+let connectionLock: Promise<void> | null = null;
 
 export const wsHandler = upgradeWebSocket((c: Context) => {
   let helloTimer: ReturnType<typeof setTimeout> | null = null;
   let thisWs: WSContext | null = null;
 
   return {
-    onOpen: (event: Event, ws: WSContext) => {
+    onOpen: async (event: Event, ws: WSContext) => {
       thisWs = ws;
-      console.error('[WS] Extension connection attempt');
+      logger.info('WS', 'Extension connection attempt');
 
-      // Force cleanup any existing connection before accepting new one
-      // This handles cases where onClose was not triggered (browser refresh, etc.)
-      if (bridgeStore.hasConnection()) {
-        console.error('[WS] Cleaning up existing connection before accepting new one');
-        bridgeStore.forceCleanup();
+      // Acquire lock to prevent race conditions
+      while (connectionLock) {
+        try {
+          await connectionLock;
+        } catch {
+          // Ignore errors from previous lock
+        }
       }
 
-      console.error('[WS] Extension connection established, waiting for HELLO handshake');
+      // Create new lock
+      let lockResolve: () => void;
+      connectionLock = new Promise((resolve) => {
+        lockResolve = resolve;
+      });
+
+      try {
+        // Force cleanup any existing connection before accepting new one
+        // This handles cases where onClose was not triggered (browser refresh, etc.)
+        if (bridgeStore.hasConnection()) {
+          logger.warn('WS', 'Cleaning up existing connection before accepting new one');
+          bridgeStore.forceCleanup();
+        }
+
+        logger.info('WS', 'Extension connection established, waiting for HELLO handshake');
+      } finally {
+        // Release lock
+        lockResolve!();
+        connectionLock = null;
+      }
 
       // Set timeout for HELLO message
       helloTimer = setTimeout(() => {
-        console.error('[WS] HELLO timeout, closing connection');
-        ws.close(1000, 'HELLO timeout');
+        logger.warn('WS', 'HELLO timeout, closing connection');
+        ws.close(1001, 'HELLO timeout');
       }, HELLO_TIMEOUT);
     },
 
@@ -45,8 +70,9 @@ export const wsHandler = upgradeWebSocket((c: Context) => {
             helloTimer = null;
           }
 
-          console.error(`[WS] Extension handshake completed, version: ${data.version}`);
+          logger.info('WS', `Extension handshake completed, version: ${data.version}`);
           bridgeStore.setExtension(ws);
+          logger.info('BridgeStore', 'Extension connection ready');
           return;
         }
 
@@ -88,11 +114,11 @@ export const wsHandler = upgradeWebSocket((c: Context) => {
 
         // Handle STATUS update
         if (data.type === 'STATUS') {
-          console.error(`[WS] Extension status update: connected=${data.connected}`);
+          logger.debug('WS', `Extension status update: connected=${data.connected}`);
           return;
         }
       } catch (error) {
-        console.error('[WS] Failed to parse extension message:', error);
+        logger.error('WS', 'Failed to parse extension message', error);
       }
     },
 
@@ -103,7 +129,7 @@ export const wsHandler = upgradeWebSocket((c: Context) => {
         helloTimer = null;
       }
 
-      console.error(`[WS] Extension disconnected (code: ${event.code}, reason: ${event.reason || 'No reason'})`);
+      logger.info('WS', `Extension disconnected (code: ${event.code}, reason: ${event.reason || 'No reason'})`);
 
       // Always try to remove - the store will check if it's the stored one
       bridgeStore.removeExtension(ws);
@@ -111,7 +137,7 @@ export const wsHandler = upgradeWebSocket((c: Context) => {
     },
 
     onError: (event: Event, ws: WSContext) => {
-      console.error('[WS] WebSocket error:', event);
+      logger.error('WS', 'WebSocket error', event);
     },
   };
 });

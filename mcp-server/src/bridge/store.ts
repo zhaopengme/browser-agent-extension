@@ -1,6 +1,7 @@
 // mcp-server/src/bridge/store.ts
 
 import type { WSContext } from 'hono/ws';
+import { logger } from '../utils/logger.js';
 import type { BridgeState, PendingRequest, ServerMessage } from './types.js';
 
 export class BridgeStore {
@@ -25,7 +26,7 @@ export class BridgeStore {
 
     // Reject all pending requests
     if (this.pendingRequests.size > 0) {
-      console.error(`[BridgeStore] Rejecting ${this.pendingRequests.size} pending requests`);
+      logger.warn('BridgeStore', `Rejecting ${this.pendingRequests.size} pending requests due to disconnect`);
       for (const [id, pending] of this.pendingRequests) {
         clearTimeout(pending.timeout);
         pending.reject(new Error('Extension disconnected'));
@@ -44,7 +45,7 @@ export class BridgeStore {
 
     const ws = this.extensionWs as unknown as WebSocket;
     if (ws.readyState !== 1) {
-      console.error('[BridgeStore] Dead connection detected, cleaning up');
+      logger.warn('BridgeStore', 'Dead connection detected, cleaning up');
       this.cleanup();
       return false;
     }
@@ -68,7 +69,7 @@ export class BridgeStore {
    * Force cleanup - use when we know the connection is dead
    */
   forceCleanup(): void {
-    console.error('[BridgeStore] Force cleanup of connection');
+    logger.info('BridgeStore', 'Force cleanup of connection');
     // Try to close the old connection if possible
     if (this.extensionWs) {
       try {
@@ -90,10 +91,10 @@ export class BridgeStore {
 
   removeExtension(ws: WSContext): void {
     if (this.extensionWs === ws) {
-      console.error('[BridgeStore] Removing extension connection');
+      logger.info('BridgeStore', 'Removing extension connection');
       this.cleanup();
     } else {
-      console.error('[BridgeStore] removeExtension called but ws does not match stored extension');
+      logger.warn('BridgeStore', 'removeExtension called but ws does not match stored extension');
     }
   }
 
@@ -133,7 +134,7 @@ export class BridgeStore {
         payload,
       };
 
-      console.error(`[Bridge] Sending message:`, JSON.stringify(message));
+      logger.debug('BridgeStore', `Sending message: ${JSON.stringify(message)}`);
       this.extensionWs!.send(JSON.stringify(message));
     });
   }
@@ -145,6 +146,8 @@ export class BridgeStore {
       this.pendingRequests.delete(id);
       this.state = { status: 'ready' };
       pending.resolve(result);
+    } else {
+      logger.warn('BridgeStore', `Received response for unknown/expired request: ${id}`);
     }
   }
 
@@ -155,6 +158,8 @@ export class BridgeStore {
       this.pendingRequests.delete(id);
       this.state = { status: 'ready' };
       pending.reject(new Error(error));
+    } else {
+      logger.warn('BridgeStore', `Received error for unknown/expired request: ${id}`);
     }
   }
 }
