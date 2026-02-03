@@ -16,19 +16,10 @@ export class BridgeStore {
   }
 
   isConnected(): boolean {
-    // Check both state and actual WebSocket readyState
-    if (this.state.status === 'idle' || this.extensionWs === null) {
-      return false;
-    }
-    // Verify the WebSocket is actually open (readyState === 1)
-    const ws = this.extensionWs as unknown as WebSocket;
-    if (ws.readyState !== 1) {
-      // Connection is dead, clean it up
-      console.error('[BridgeStore] Connection dead (readyState !== 1), cleaning up');
-      this.cleanup();
-      return false;
-    }
-    return true;
+    // Simply check if we have a connection stored and state is not idle
+    // Note: We don't check readyState here because WSContext doesn't expose it reliably
+    // The onClose handler will clean up when the connection actually closes
+    return this.state.status !== 'idle' && this.extensionWs !== null;
   }
 
   private cleanup(): void {
