@@ -16,9 +16,7 @@ export class BridgeStore {
   }
 
   isConnected(): boolean {
-    const result = this.state.status !== 'idle' && this.extensionWs !== null;
-    console.error(`[BridgeStore] isConnected called: status=${this.state.status}, hasWs=${this.extensionWs !== null}, result=${result}`);
-    return result;
+    return this.state.status !== 'idle' && this.extensionWs !== null;
   }
 
   private cleanup(): void {
@@ -86,10 +84,8 @@ export class BridgeStore {
   }
 
   setExtension(ws: WSContext): void {
-    console.error(`[BridgeStore] setExtension called`);
     this.extensionWs = ws;
     this.state = { status: 'ready' };
-    console.error(`[BridgeStore] State set to ready, extensionWs stored`);
   }
 
   removeExtension(ws: WSContext): void {

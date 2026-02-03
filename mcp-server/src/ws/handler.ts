@@ -35,13 +35,10 @@ export const wsHandler = upgradeWebSocket((c: Context) => {
 
     onMessage: (event: MessageEvent, ws: WSContext) => {
       try {
-        console.error(`[WS] Received message: ${event.data}`);
         const message = JSON.parse(event.data as string) as ExtMessage;
-        console.error(`[WS] Parsed message type: ${message.type}`);
 
         // Handle HELLO message (handshake)
         if (message.type === 'HELLO') {
-          console.error(`[WS] HELLO received, checking if can accept...`);
           // Clear timeout
           if (helloTimer) {
             clearTimeout(helloTimer);
@@ -56,21 +53,25 @@ export const wsHandler = upgradeWebSocket((c: Context) => {
           }
 
           console.error(`[WS] Extension handshake completed, version: ${message.version}`);
-          console.error(`[WS] Calling setExtension...`);
           bridgeStore.setExtension(ws);
-          console.error(`[WS] setExtension called, state should be ready`);
           return;
         }
 
         // Handle RESPONSE from extension
         if (message.type === 'RESPONSE') {
-          bridgeStore.resolveResponse(message.id, message.result);
+          // Support both 'result' (ExtMessage type) and 'payload' (actual extension format)
+          const result = (message as any).result ?? (message as any).payload;
+          console.error(`[WS] RESPONSE received for id=${message.id}, result=${JSON.stringify(result).slice(0, 100)}`);
+          bridgeStore.resolveResponse(message.id, result);
           return;
         }
 
         // Handle ERROR from extension
         if (message.type === 'ERROR') {
-          bridgeStore.rejectResponse(message.id, message.error);
+          // Support both 'error' (ExtMessage type) and 'payload.error' (actual extension format)
+          const error = (message as any).error ?? (message as any).payload?.error ?? 'Unknown error';
+          console.error(`[WS] ERROR received for id=${message.id}: ${error}`);
+          bridgeStore.rejectResponse(message.id, error);
           return;
         }
 
