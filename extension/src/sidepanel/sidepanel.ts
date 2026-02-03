@@ -233,10 +233,17 @@ function connect(): void {
             if (!tabId || isRestrictedUrl) {
               // 没有活动标签或是受限页面时，创建一个新标签
               console.log('[SidePanel] Creating new tab (no active tab or restricted URL)');
-              const tab = await chrome.tabs.create({ active: true });
-              tabId = tab.id;
-              // 等待新标签页加载完成
-              await new Promise(resolve => setTimeout(resolve, 500));
+              try {
+                const tab = await chrome.tabs.create({ active: true });
+                if (!tab.id) {
+                  throw new Error('Failed to create tab - no tab ID returned');
+                }
+                tabId = tab.id;
+                // 等待新标签页加载完成
+                await new Promise(resolve => setTimeout(resolve, 500));
+              } catch (createError) {
+                throw new Error(`Failed to create new tab: ${createError instanceof Error ? createError.message : 'Unknown error'}`);
+              }
             }
           } catch (error) {
             console.error('[SidePanel] Failed to get active tab:', error);

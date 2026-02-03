@@ -10,7 +10,10 @@
       "Bash(bun --version:*)",
       "Bash(head -20})",
       "Bash(bun build:*)",
-      "Bash(bun run build:bin:*)"
+      "Bash(bun run build:bin:*)",
+      "Bash(bunx tsc:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nrefactor: remove session concept, all clients use same active tab\n\n- Simplify daemon.ts: remove session management, REGISTER/DISCONNECT\n- Simplify mcp.ts: remove sessionId, direct REQUEST without registration\n- Simplify sidepanel.ts: remove session routing, use active tab only\n- Delete session-binding.ts and its test file\n- All MCP clients now share the same active browser tab\n\nCloses multi-session architecture in favor of simpler single-tab control.\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
     ],
     "deny": [],
     "ask": []

@@ -23,7 +23,6 @@ import { resolveSelfCommand } from './entrypoint.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const WS_PORT = process.env.BROWSER_AGENT_WS_PORT ? parseInt(process.env.BROWSER_AGENT_WS_PORT) : 3026;
 const DEFAULT_DAEMON_SOCKET_PATH = process.env.XDG_RUNTIME_DIR
   ? path.join(process.env.XDG_RUNTIME_DIR, 'browser-agent-daemon.sock')
   : '/tmp/browser-agent-daemon.sock';

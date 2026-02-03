@@ -189,7 +189,7 @@ function startWebSocketServer(): void {
 /**
  * Send request to browser extension
  */
-function sendToExtension(requestId: string, action: string, params?: Record<string, unknown>): Promise<unknown> {
+function sendToExtension(socket: net.Socket, requestId: string, action: string, params?: Record<string, unknown>): Promise<unknown> {
   return new Promise((resolve, reject) => {
     if (!extensionWs || extensionWs.readyState !== WebSocket.OPEN) {
       reject(new Error('Browser extension not connected'));
@@ -201,7 +201,7 @@ function sendToExtension(requestId: string, action: string, params?: Record<stri
       reject(new Error(`Request timeout: ${action}`));
     }, REQUEST_TIMEOUT);
 
-    pendingRequests.set(requestId, { socket: pendingRequests.get(requestId)?.socket!, resolve, reject, timeout });
+    pendingRequests.set(requestId, { socket, resolve, reject, timeout });
 
     const request = {
       type: 'REQUEST',
@@ -266,7 +266,7 @@ async function handleRequest(socket: net.Socket, message: DaemonMessage): Promis
   const startTime = Date.now();
 
   try {
-    const result = await sendToExtension(id, action, params);
+    const result = await sendToExtension(socket, id, action, params);
     const duration = Date.now() - startTime;
 
     writeMcpLog('DONE', action, { duration, success: true });
