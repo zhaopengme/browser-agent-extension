@@ -1,40 +1,50 @@
-import { parseMode } from './entrypoint.js';
-import { runDaemon } from './daemon.js';
-import { runMcpServer } from './mcp.js';
-import { writeStartupLog } from './logging.js';
-import * as path from 'node:path';
+#!/usr/bin/env node
+// mcp-server/src/main.ts
 
-export function runMain(options: { argv?: string[]; dryRun?: boolean } = {}): 'daemon' | 'mcp' {
-  const mode = parseMode(options.argv ?? process.argv.slice(2));
-  const daemonSocket = process.env.BROWSER_AGENT_DAEMON_SOCKET;
-  const logFile = process.env.BROWSER_AGENT_LOG_FILE
-    ?? (daemonSocket ? `${daemonSocket}.log` : path.join(process.cwd(), '.run', 'browser-agent.log'));
+/**
+ * Browser Agent MCP Server with Hono
+ *
+ * Provides:
+ * - /mcp - MCP Streamable HTTP endpoint
+ * - /ws - WebSocket endpoint for browser extension
+ * - /health - Health check endpoint
+ */
 
-  writeStartupLog(logFile, {
-    mode,
-    execPath: process.execPath,
-    argv: process.argv.join(' '),
-    cwd: process.cwd(),
-    daemonSocket: daemonSocket ?? '',
-    wsPort: process.env.BROWSER_AGENT_WS_PORT ?? '3026',
+import { Hono } from 'hono';
+import { websocket } from 'hono/bun';
+import { mcpHandler } from './mcp/handler.js';
+import { wsHandler } from './ws/handler.js';
+import { bridgeStore } from './bridge/store.js';
+
+const app = new Hono();
+
+// MCP Streamable HTTP endpoint
+app.all('/mcp', mcpHandler);
+
+// WebSocket endpoint for browser extension
+app.get('/ws', wsHandler);
+
+// Health check
+app.get('/health', (c) => {
+  const state = bridgeStore.getState();
+  return c.json({
+    status: 'ok',
+    extensionConnected: bridgeStore.isConnected(),
+    state: state.status,
   });
+});
 
-  if (options.dryRun) {
-    return mode;
-  }
+// Default port
+const PORT = parseInt(process.env.PORT || '3026');
 
-  if (mode === 'daemon') {
-    runDaemon();
-  } else {
-    runMcpServer().catch((error) => {
-      console.error('[MCP Server] Fatal error:', error);
-      process.exit(1);
-    });
-  }
+console.error(`[Server] Starting Browser Agent MCP Server...`);
+console.error(`[Server] MCP endpoint: http://localhost:${PORT}/mcp`);
+console.error(`[Server] WebSocket endpoint: ws://localhost:${PORT}/ws`);
+console.error(`[Server] Health check: http://localhost:${PORT}/health`);
 
-  return mode;
-}
-
-if (import.meta.main) {
-  runMain();
-}
+// Export for Bun
+export default {
+  fetch: app.fetch,
+  websocket,
+  port: PORT,
+};
