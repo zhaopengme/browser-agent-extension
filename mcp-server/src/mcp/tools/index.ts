@@ -1,0 +1,69 @@
+// mcp-server/src/mcp/tools/index.ts
+
+import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { navigationTools } from './navigation.js';
+import { infoTools } from './info.js';
+import { tabTools } from './tabs.js';
+import { networkTools } from './network.js';
+import { waitingTools } from './waiting.js';
+import { interactionTools } from './interaction.js';
+import { advancedTools } from './advanced.js';
+
+export const allTools: Tool[] = [
+  ...navigationTools,
+  ...infoTools,
+  ...tabTools,
+  ...networkTools,
+  ...waitingTools,
+  ...interactionTools,
+  ...advancedTools,
+];
+
+// Tool name to action mapping
+export function getActionFromToolName(toolName: string): string {
+  const mapping: Record<string, string> = {
+    browser_lock: 'lock',
+    browser_unlock: 'unlock',
+    browser_update_status: 'update_status',
+    browser_navigate: 'navigate',
+    browser_click: 'click',
+    browser_type: 'type',
+    browser_scroll: 'scroll',
+    browser_screenshot: 'screenshot',
+    browser_extract: 'extract',
+    browser_evaluate: 'evaluate',
+    browser_get_page_info: 'get_page_info',
+    browser_get_dom_tree: 'get_dom_tree',
+    browser_get_dom_tree_full: 'get_dom_tree_full',
+    browser_get_tabs: 'get_tabs',
+    browser_switch_tab: 'switch_tab',
+    browser_press_key: 'press_key',
+    browser_blur: 'blur',
+    browser_select_option: 'select_option',
+    browser_go_back: 'go_back',
+    browser_go_forward: 'go_forward',
+    browser_reload: 'reload',
+    browser_enable_network: 'enable_network',
+    browser_disable_network: 'disable_network',
+    browser_get_network_requests: 'get_network_requests',
+    browser_get_network_requests_with_response: 'get_network_requests_with_response',
+    browser_clear_network_requests: 'clear_network_requests',
+    browser_wait_for_response: 'wait_for_response',
+    browser_wait_for_selector: 'wait_for_selector',
+    browser_wait_for_timeout: 'wait_for_timeout',
+    browser_wait_for_load_state: 'wait_for_load_state',
+    browser_wait_for_function: 'wait_for_function',
+    browser_upload_file: 'upload_file',
+    browser_get_dialog: 'get_dialog',
+    browser_handle_dialog: 'handle_dialog',
+    browser_set_auto_dialog: 'set_auto_dialog',
+    browser_get_console_logs: 'get_console_logs',
+    browser_enable_console_capture: 'enable_console_capture',
+    browser_hover: 'hover',
+    browser_double_click: 'double_click',
+    browser_right_click: 'right_click',
+    browser_download: 'download',
+    browser_get_connection_status: 'get_connection_status',
+  };
+  return mapping[toolName] || toolName;
+}
