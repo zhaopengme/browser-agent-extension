@@ -17,17 +17,11 @@ export const wsHandler = upgradeWebSocket((c: Context) => {
       thisWs = ws;
       console.error('[WS] Extension connection attempt');
 
-      // Check if existing connection is still alive, clean up if not
-      if (bridgeStore.isConnected()) {
-        console.error('[WS] Extension already connected, checking if alive...');
-        // The isConnected check should have cleaned up if dead, but let's verify
-        const stillConnected = bridgeStore.isConnected();
-        if (stillConnected) {
-          console.error('[WS] Extension already connected and alive, rejecting new connection');
-          ws.close(1000, 'Another extension is already connected');
-          return;
-        }
-        console.error('[WS] Dead connection cleaned up, accepting new connection');
+      // Force cleanup any existing connection before accepting new one
+      // This handles cases where onClose was not triggered (browser refresh, etc.)
+      if (bridgeStore.hasConnection()) {
+        console.error('[WS] Cleaning up existing connection before accepting new one');
+        bridgeStore.forceCleanup();
       }
 
       console.error('[WS] Extension connection established, waiting for HELLO handshake');

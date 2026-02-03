@@ -69,6 +69,32 @@ export class BridgeStore {
     return this.state.status === 'ready';
   }
 
+  /**
+   * Check if there's a stored connection (regardless of readyState)
+   */
+  hasConnection(): boolean {
+    return this.extensionWs !== null && this.state.status !== 'idle';
+  }
+
+  /**
+   * Force cleanup - use when we know the connection is dead
+   */
+  forceCleanup(): void {
+    console.error('[BridgeStore] Force cleanup of connection');
+    // Try to close the old connection if possible
+    if (this.extensionWs) {
+      try {
+        const ws = this.extensionWs as unknown as WebSocket;
+        if (ws.readyState === 1) {
+          ws.close(1000, 'Replaced by new connection');
+        }
+      } catch {
+        // Ignore errors
+      }
+    }
+    this.cleanup();
+  }
+
   setExtension(ws: WSContext): void {
     this.extensionWs = ws;
     this.state = { status: 'ready' };
