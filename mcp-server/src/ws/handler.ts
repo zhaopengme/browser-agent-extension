@@ -10,16 +10,18 @@ const HELLO_TIMEOUT = 10000; // 10 seconds to send HELLO
 
 export const wsHandler = upgradeWebSocket((c: Context) => {
   let helloTimer: ReturnType<typeof setTimeout> | null = null;
+  let isAccepted = false; // Track if this connection was accepted
 
   return {
     onOpen: (event: Event, ws: WSContext) => {
       console.error('[WS] Extension connection attempt');
 
-      // Only accept one extension connection
+      // Force check if existing connection is still alive
       if (bridgeStore.isConnected()) {
         const state = bridgeStore.getState();
         console.error(`[WS] Extension already connected (state: ${state.status}), rejecting new connection`);
         ws.close(1000, 'Another extension is already connected');
+        // Note: onClose will be called, but isAccepted is false so we won't try to remove it
         return;
       }
 
@@ -52,7 +54,14 @@ export const wsHandler = upgradeWebSocket((c: Context) => {
           }
 
           console.error(`[WS] Extension handshake completed, version: ${message.version}`);
+          isAccepted = true; // Mark this connection as accepted
           bridgeStore.setExtension(ws);
+          return;
+        }
+
+        // Only process other messages if connection is accepted
+        if (!isAccepted) {
+          console.error('[WS] Received message before HELLO, ignoring');
           return;
         }
 
@@ -85,8 +94,14 @@ export const wsHandler = upgradeWebSocket((c: Context) => {
         helloTimer = null;
       }
 
-      console.error(`[WS] Extension disconnected (code: ${event.code}, reason: ${event.reason || 'No reason'})`);
-      bridgeStore.removeExtension(ws);
+      // Only remove from store if this was an accepted connection
+      if (isAccepted) {
+        console.error(`[WS] Extension disconnected (code: ${event.code}, reason: ${event.reason || 'No reason'})`);
+        bridgeStore.removeExtension(ws);
+      } else {
+        // Connection was never accepted (rejected or HELLO timeout)
+        console.error(`[WS] Rejected connection closed (code: ${event.code}, reason: ${event.reason || 'No reason'})`);
+      }
     },
 
     onError: (event: Event, ws: WSContext) => {
