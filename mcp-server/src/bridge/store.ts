@@ -16,10 +16,9 @@ export class BridgeStore {
   }
 
   isConnected(): boolean {
-    // Simply check if we have a connection stored and state is not idle
-    // Note: We don't check readyState here because WSContext doesn't expose it reliably
-    // The onClose handler will clean up when the connection actually closes
-    return this.state.status !== 'idle' && this.extensionWs !== null;
+    const result = this.state.status !== 'idle' && this.extensionWs !== null;
+    console.error(`[BridgeStore] isConnected called: status=${this.state.status}, hasWs=${this.extensionWs !== null}, result=${result}`);
+    return result;
   }
 
   private cleanup(): void {
@@ -87,8 +86,10 @@ export class BridgeStore {
   }
 
   setExtension(ws: WSContext): void {
+    console.error(`[BridgeStore] setExtension called`);
     this.extensionWs = ws;
     this.state = { status: 'ready' };
+    console.error(`[BridgeStore] State set to ready, extensionWs stored`);
   }
 
   removeExtension(ws: WSContext): void {

@@ -35,10 +35,13 @@ export const wsHandler = upgradeWebSocket((c: Context) => {
 
     onMessage: (event: MessageEvent, ws: WSContext) => {
       try {
+        console.error(`[WS] Received message: ${event.data}`);
         const message = JSON.parse(event.data as string) as ExtMessage;
+        console.error(`[WS] Parsed message type: ${message.type}`);
 
         // Handle HELLO message (handshake)
         if (message.type === 'HELLO') {
+          console.error(`[WS] HELLO received, checking if can accept...`);
           // Clear timeout
           if (helloTimer) {
             clearTimeout(helloTimer);
@@ -53,7 +56,9 @@ export const wsHandler = upgradeWebSocket((c: Context) => {
           }
 
           console.error(`[WS] Extension handshake completed, version: ${message.version}`);
+          console.error(`[WS] Calling setExtension...`);
           bridgeStore.setExtension(ws);
+          console.error(`[WS] setExtension called, state should be ready`);
           return;
         }
 
