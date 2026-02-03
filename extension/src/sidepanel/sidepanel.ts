@@ -182,7 +182,8 @@ function setSettingsEnabled(enabled: boolean): void {
  * 连接 WebSocket
  */
 function connect(): void {
-  if (ws && ws.readyState === WebSocket.OPEN) {
+  // 如果已有连接或正在连接中，不要创建重复连接
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
     return;
   }
 

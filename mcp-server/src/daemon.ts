@@ -175,10 +175,16 @@ function startWebSocketServer(): void {
     });
 
     // Use this as the extension connection
-    if (!extensionWs || extensionWs.readyState !== WebSocket.OPEN) {
-      extensionWs = ws;
-      extensionReady = false;
+    // If there's already an active connection, close the new one to prevent race conditions
+    if (extensionWs && extensionWs.readyState === WebSocket.OPEN) {
+      console.error('[Daemon] Extension already connected, rejecting new connection');
+      ws.close(1000, 'Another extension is already connected');
+      return;
     }
+
+    extensionWs = ws;
+    extensionReady = false;
+    console.error('[Daemon] Extension connection established');
   });
 
   wsServer.on('error', (error) => {
