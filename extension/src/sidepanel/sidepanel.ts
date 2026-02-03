@@ -38,7 +38,6 @@ function getWsUrl(): string {
 interface WSRequest {
   type: 'REQUEST';
   id: string;
-  sessionId?: string; // NEW: Session identifier for multi-client support
   action: string;
   params?: Record<string, unknown>;
 }
@@ -46,7 +45,6 @@ interface WSRequest {
 interface WSResponse {
   type: 'RESPONSE';
   id: string;
-  sessionId?: string; // NEW: Echo back session identifier
   payload: {
     success: boolean;
     data?: unknown;
@@ -218,67 +216,41 @@ function connect(): void {
         // 处理 REQUEST 消息
         if (message.type === 'REQUEST') {
           const request = message as WSRequest;
-          const sessionId = request.sessionId;
 
           addLog(request.action, JSON.stringify(request.params || {}).slice(0, 100));
 
           let tabId: number | undefined;
-          const requestParams = (request.params || {}) as Record<string, unknown>;
-          const requestedTabId = typeof requestParams.tabId === 'number' ? requestParams.tabId : undefined;
 
-          if (requestedTabId !== undefined) {
-            // 显式指定tabId：使用指定的标签
-            try {
-              await chrome.tabs.get(requestedTabId);
-              tabId = requestedTabId;
-            } catch (error) {
-              console.error('[SidePanel] Specified tab not found:', error);
-              const errorResponse: WSResponse = {
-                type: 'RESPONSE',
-                id: request.id,
-                sessionId: sessionId,
-                payload: {
-                  success: false,
-                  error: `Tab ${requestedTabId} not found: ${error instanceof Error ? error.message : 'Unknown error'}`
-                }
-              };
-              ws?.send(JSON.stringify(errorResponse));
-              addLog(request.action, 'tab not found', 'error');
-              return;
+          // 始终使用当前活动标签
+          try {
+            const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            tabId = activeTab?.id;
+
+            // 检查当前标签页是否是受限URL (chrome://, chrome-extension://等)
+            const restrictedPrefixes = ['chrome://', 'chrome-extension://', 'devtools://', 'edge://', 'about:'];
+            const isRestrictedUrl = activeTab?.url && restrictedPrefixes.some(prefix => activeTab.url!.startsWith(prefix));
+
+            if (!tabId || isRestrictedUrl) {
+              // 没有活动标签或是受限页面时，创建一个新标签
+              console.log('[SidePanel] Creating new tab (no active tab or restricted URL)');
+              const tab = await chrome.tabs.create({ active: true });
+              tabId = tab.id;
+              // 等待新标签页加载完成
+              await new Promise(resolve => setTimeout(resolve, 500));
             }
-          } else {
-            // 未指定tabId：始终使用当前活动标签
-            try {
-              const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-              tabId = activeTab?.id;
-
-              // 检查当前标签页是否是受限URL (chrome://, chrome-extension://等)
-              const restrictedPrefixes = ['chrome://', 'chrome-extension://', 'devtools://', 'edge://', 'about:'];
-              const isRestrictedUrl = activeTab?.url && restrictedPrefixes.some(prefix => activeTab.url!.startsWith(prefix));
-
-              if (!tabId || isRestrictedUrl) {
-                // 没有活动标签或是受限页面时，创建一个新标签
-                console.log('[SidePanel] Creating new tab (no active tab or restricted URL)');
-                const tab = await chrome.tabs.create({ active: true });
-                tabId = tab.id;
-                // 等待新标签页加载完成
-                await new Promise(resolve => setTimeout(resolve, 500));
+          } catch (error) {
+            console.error('[SidePanel] Failed to get active tab:', error);
+            const errorResponse: WSResponse = {
+              type: 'RESPONSE',
+              id: request.id,
+              payload: {
+                success: false,
+                error: `Failed to get active tab: ${error instanceof Error ? error.message : 'Unknown error'}`
               }
-            } catch (error) {
-              console.error('[SidePanel] Failed to get active tab:', error);
-              const errorResponse: WSResponse = {
-                type: 'RESPONSE',
-                id: request.id,
-                sessionId: sessionId,
-                payload: {
-                  success: false,
-                  error: `Failed to get active tab: ${error instanceof Error ? error.message : 'Unknown error'}`
-                }
-              };
-              ws?.send(JSON.stringify(errorResponse));
-              addLog(request.action, 'no active tab', 'error');
-              return;
-            }
+            };
+            ws?.send(JSON.stringify(errorResponse));
+            addLog(request.action, 'no active tab', 'error');
+            return;
           }
 
           // 转发请求到 Service Worker
@@ -286,15 +258,14 @@ function connect(): void {
             type: 'MCP_REQUEST',
             id: request.id,
             action: request.action,
-            params: requestParams,
-            tabId: tabId, // 传递 tabId 以便在特定标签页执行操作
+            params: request.params || {},
+            tabId: tabId,
           });
 
-          // 发送响应回 MCP Server，回显 sessionId
+          // 发送响应回 MCP Server
           const wsResponse: WSResponse = {
             type: 'RESPONSE',
             id: request.id,
-            sessionId: sessionId, // Echo back sessionId
             payload: response,
           };
 
