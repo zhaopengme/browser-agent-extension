@@ -22,7 +22,6 @@ const SOCKET_PATH = process.env.BROWSER_AGENT_DAEMON_SOCKET || DEFAULT_SOCKET_PA
 const PID_FILE = process.env.BROWSER_AGENT_DAEMON_PID || `${SOCKET_PATH}.pid`;
 const WS_HOST = process.env.BROWSER_AGENT_WS_HOST || '0.0.0.0';
 const WS_PORT = process.env.BROWSER_AGENT_WS_PORT ? parseInt(process.env.BROWSER_AGENT_WS_PORT) : 3026;
-const IDLE_TIMEOUT = 60000; // 60 seconds
 const REQUEST_TIMEOUT = 60000; // 60 seconds
 const MAX_BUFFER_SIZE = 1024 * 1024; // 1MB
 const LOG_FILE = process.env.BROWSER_AGENT_LOG_FILE || '/tmp/browser-agent.log';
@@ -70,27 +69,11 @@ let extensionReady = false;
 
 let unixServer: net.Server | null = null;
 let wsServer: WebSocketServer | null = null;
-let idleTimer: NodeJS.Timeout | null = null;
-
 /**
  * Check if extension WebSocket is connected and ready
  */
 function isExtensionConnected(): boolean {
   return extensionWs !== null && extensionWs.readyState === WebSocket.OPEN && extensionReady;
-}
-
-/**
- * Reset idle timer
- */
-function resetIdleTimer(): void {
-  if (idleTimer) {
-    clearTimeout(idleTimer);
-  }
-
-  idleTimer = setTimeout(() => {
-    console.error('[Daemon] No active connections for 60s, shutting down...');
-    shutdown();
-  }, IDLE_TIMEOUT);
 }
 
 function ensureSocketDir(): void {
@@ -296,8 +279,6 @@ async function handleRequest(socket: net.Socket, message: DaemonMessage): Promis
   } finally {
     pendingRequests.delete(id);
   }
-
-  resetIdleTimer();
 }
 
 /**
@@ -380,8 +361,6 @@ function handleClientConnection(socket: net.Socket): void {
         pendingRequests.delete(id);
       }
     }
-
-    resetIdleTimer();
   });
 
   socket.on('error', (error) => {
@@ -452,11 +431,6 @@ function removePidFile(): void {
  */
 function shutdown(): void {
   console.error('[Daemon] Shutting down...');
-
-  // Clear idle timer
-  if (idleTimer) {
-    clearTimeout(idleTimer);
-  }
 
   // Clear all pending requests
   for (const [id, pending] of pendingRequests) {
@@ -537,8 +511,7 @@ export function runDaemon(options: { dryRun?: boolean } = {}): void {
   // Start WebSocket server for extension connections
   startWebSocketServer();
 
-  // Start idle timer
-  resetIdleTimer();
+  // Daemon will keep running until manually stopped or process killed
 
   // Start memory stats logging (every 5 minutes)
   setInterval(() => {
