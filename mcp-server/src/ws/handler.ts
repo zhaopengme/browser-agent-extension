@@ -4,6 +4,7 @@ import type { Context } from 'hono';
 import { upgradeWebSocket } from 'hono/bun';
 import type { WSContext } from 'hono/ws';
 import { bridgeStore } from '../bridge/store.js';
+import type { ExtMessage, ExtResponsePayload } from '../bridge/types.js';
 
 const HELLO_TIMEOUT = 10000; // 10 seconds to send HELLO
 
@@ -34,7 +35,7 @@ export const wsHandler = upgradeWebSocket((c: Context) => {
 
     onMessage: (event: MessageEvent, ws: WSContext) => {
       try {
-        const data = JSON.parse(event.data as string);
+        const data = JSON.parse(event.data as string) as ExtMessage | { type: 'RESPONSE'; id: string; payload: ExtResponsePayload };
 
         // Handle HELLO message (handshake)
         if (data.type === 'HELLO') {
@@ -50,19 +51,29 @@ export const wsHandler = upgradeWebSocket((c: Context) => {
         }
 
         // Handle RESPONSE from extension
-        // Extension format: { type: 'RESPONSE', id, payload: { success, data?, error? } }
+        // Extension can send in two formats:
+        // 1. Direct: { type: 'RESPONSE', id, payload: result }
+        // 2. Wrapped: { type: 'RESPONSE', id, payload: { __format__: 'wrapped', success, data?, error? } }
         if (data.type === 'RESPONSE') {
           const payload = data.payload;
-          // Check if payload has success field (new format) or is direct result (old format)
-          if (payload && typeof payload === 'object' && 'success' in payload) {
-            // New format with success flag
+
+          // Type guard to check if it's wrapped format
+          const isWrappedFormat = (p: unknown): p is ExtResponsePayload => {
+            return p !== null &&
+                   typeof p === 'object' &&
+                   '__format__' in p &&
+                   (p as Record<string, unknown>).__format__ === 'wrapped';
+          };
+
+          if (isWrappedFormat(payload)) {
+            // Wrapped format with explicit format identifier
             if (payload.success) {
               bridgeStore.resolveResponse(data.id, payload.data);
             } else {
               bridgeStore.rejectResponse(data.id, payload.error || 'Unknown error');
             }
           } else {
-            // Old format - payload is the result directly
+            // Direct format - payload is the result
             bridgeStore.resolveResponse(data.id, payload);
           }
           return;
@@ -70,7 +81,7 @@ export const wsHandler = upgradeWebSocket((c: Context) => {
 
         // Handle ERROR from extension
         if (data.type === 'ERROR') {
-          const errorMsg = data.payload?.error || data.error || 'Unknown error';
+          const errorMsg = data.error || 'Unknown error';
           bridgeStore.rejectResponse(data.id, errorMsg);
           return;
         }
