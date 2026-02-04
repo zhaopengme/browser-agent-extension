@@ -94,6 +94,12 @@ const toolSchemas = {
       selector: z.string().optional(),
     }),
   },
+  browser_markdown: {
+    description: 'Convert page content to Markdown format',
+    schema: z.object({
+      selector: z.string().optional().describe('CSS selector to target specific element (optional, defaults to body if not provided)'),
+    }),
+  },
   browser_get_connection_status: {
     description: 'Check browser extension connection status',
     schema: z.object({}),

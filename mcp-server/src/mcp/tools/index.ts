@@ -16,6 +16,7 @@ export function getActionFromToolName(toolName: string): string {
     browser_get_page_info: 'get_page_info',
     browser_get_dom_tree: 'get_dom_tree',
     browser_get_dom_tree_full: 'get_dom_tree_full',
+    browser_markdown: 'markdown',
     browser_get_tabs: 'get_tabs',
     browser_switch_tab: 'switch_tab',
     browser_press_key: 'press_key',

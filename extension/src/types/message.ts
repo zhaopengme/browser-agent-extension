@@ -6,6 +6,8 @@
 export type ContentMessage =
   // 健康检查
   | { type: 'PING'; payload?: undefined }
+  // Markdown 转换
+  | { type: 'GET_MARKDOWN'; payload?: { selector?: string } }
   // DOM 树操作
   | { type: 'GET_DOM_TREE'; payload?: { selector?: string; maxDepth?: number; excludeTags?: string[] } }
   | { type: 'GET_DOM_TREE_FULL'; payload?: { selector?: string } }

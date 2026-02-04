@@ -95,4 +95,15 @@ export const infoTools: Tool[] = [
       },
     },
   },
+  {
+    name: 'browser_markdown',
+    description: 'Convert page content to Markdown format. Useful for extracting readable content from articles, documentation, or any web page.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string', description: 'CSS selector to target specific element (optional, defaults to body if not provided)' },
+      },
+      additionalProperties: false,
+    },
+  },
 ];

@@ -11,6 +11,7 @@
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.0.0-beta.28",
     "@types/chrome": "^0.0.287",
+    "@types/turndown": "^5.0.6",
     "typescript": "^5.7.2",
     "vite": "^6.0.1"
   },
@@ -18,6 +19,7 @@
     "@ai-sdk/anthropic": "^2.0.50",
     "@ai-sdk/google": "^2.0.44",
     "@ai-sdk/openai": "^2.0.75",
-    "ai": "^5.0.104"
+    "ai": "^5.0.104",
+    "turndown": "^7.2.2"
   }
 }

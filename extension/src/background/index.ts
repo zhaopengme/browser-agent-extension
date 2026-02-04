@@ -262,6 +262,13 @@ async function executeAction(action: string, params: Record<string, unknown>, ta
       return domTree;
     }
 
+    case 'markdown': {
+      // 将页面内容转换为 Markdown
+      const selector = params.selector as string | undefined;
+      const result = await getMarkdown(selector, tabId);
+      return result;
+    }
+
     case 'get_dom_tree_structured': {
       // 树状结构版：包含所有可见元素
       const domTree = await getDomTreeStructured(params, tabId);
@@ -1079,6 +1086,30 @@ async function getDomTreeAria(params: Record<string, unknown>, tabId?: number): 
 
   if (!response.success) {
     throw new Error(response.error || 'Failed to get ARIA tree');
+  }
+
+  return response.data;
+}
+
+/**
+ * 获取页面 Markdown 内容
+ */
+async function getMarkdown(selector?: string, tabId?: number): Promise<{ markdown: string; title: string; url: string; truncated?: boolean }> {
+  const targetTabId = await getTargetTabId(tabId);
+  if (!targetTabId) {
+    throw new Error('No active tab found');
+  }
+
+  // 确保 content script 已注入
+  await ensureContentScriptInjected(targetTabId);
+
+  const response = await chrome.tabs.sendMessage(targetTabId, {
+    type: 'GET_MARKDOWN',
+    payload: { selector },
+  });
+
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to convert to markdown');
   }
 
   return response.data;

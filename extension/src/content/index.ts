@@ -1748,6 +1748,74 @@ async function fetchResourceInPageContext(url: string): Promise<ContentResponse<
 }
 
 /**
+ * 将页面内容转换为 Markdown
+ */
+const MAX_MARKDOWN_LENGTH = 500000; // 500KB 限制
+
+async function convertToMarkdown(selector?: string): Promise<ContentResponse<{ markdown: string; title: string; url: string; truncated?: boolean }>> {
+  try {
+    // 动态导入 Turndown
+    const TurndownModule = await import('turndown');
+    const TurndownService = TurndownModule.default || TurndownModule;
+    if (!TurndownService) {
+      throw new Error('Failed to load Turndown library');
+    }
+
+    const turndownService = new TurndownService({
+      headingStyle: 'atx',
+      hr: '---',
+      bulletListMarker: '-',
+      codeBlockStyle: 'fenced',
+      fence: '```',
+      emDelimiter: '*',
+      strongDelimiter: '**',
+      linkStyle: 'inlined',
+      linkReferenceStyle: 'full',
+    });
+
+    // 配置规则：移除脚本、样式、导航等噪音元素
+    // 注意：turndown.remove() 只影响转换过程，不会修改实际 DOM
+    turndownService.remove(['script', 'style', 'noscript', 'nav', 'header', 'footer', 'aside']);
+
+    // 获取目标元素
+    const element = selector ? document.querySelector(selector) : document.body;
+    if (!element) {
+      return { success: false, error: `Element not found: ${selector}` };
+    }
+
+    // 转换为 Markdown
+    const markdown = turndownService.turndown(element.innerHTML);
+
+    // 清理：移除多余的空行
+    let cleanedMarkdown = markdown
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+
+    // 限制内容长度
+    let truncated = false;
+    if (cleanedMarkdown.length > MAX_MARKDOWN_LENGTH) {
+      cleanedMarkdown = cleanedMarkdown.slice(0, MAX_MARKDOWN_LENGTH) + '\n\n... (content truncated)';
+      truncated = true;
+    }
+
+    return {
+      success: true,
+      data: {
+        markdown: cleanedMarkdown,
+        title: document.title,
+        url: window.location.href,
+        truncated,
+      },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to convert to markdown',
+    };
+  }
+}
+
+/**
  * Message handler
  */
 chrome.runtime.onMessage.addListener(
@@ -1759,6 +1827,19 @@ chrome.runtime.onMessage.addListener(
       case 'PING':
         response = { success: true, data: 'pong' };
         break;
+
+      // ========== Markdown 转换 ==========
+      case 'GET_MARKDOWN':
+        // 异步操作，需要特殊处理
+        convertToMarkdown(message.payload?.selector).then(result => {
+          sendResponse(result);
+        }).catch(error => {
+          sendResponse({
+            success: false,
+            error: error instanceof Error ? error.message : 'Failed to convert to markdown',
+          });
+        });
+        return true; // 表示异步响应
 
       // ========== DOM 树操作 ==========
       case 'GET_DOM_TREE':
