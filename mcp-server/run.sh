@@ -54,6 +54,13 @@ logs() {
     tail -f "$LOG_FILE"
 }
 
+restart() {
+    echo "正在重启服务..."
+    stop 2>/dev/null || true
+    sleep 1
+    start
+}
+
 case "${1:-}" in
     start)
         start
@@ -61,11 +68,14 @@ case "${1:-}" in
     stop)
         stop
         ;;
+    restart)
+        restart
+        ;;
     logs)
         logs
         ;;
     *)
-        echo "用法: $0 {start|stop|logs}"
+        echo "用法: $0 {start|stop|restart|logs}"
         exit 1
         ;;
 esac
