@@ -240,7 +240,17 @@ async function executeAction(action: string, params: Record<string, unknown>, ta
     case 'evaluate': {
       const script = params.script as string;
       if (!script) throw new Error('script is required');
+
+      // Print script content for debugging
+      console.log('[Background] Executing script:');
+      console.log('========== SCRIPT START ==========');
+      console.log(script);
+      console.log('========== SCRIPT END ==========');
+
       const result = await page.evaluate(script);
+
+      console.log('[Background] Script result:', result);
+
       return { result };
     }
 

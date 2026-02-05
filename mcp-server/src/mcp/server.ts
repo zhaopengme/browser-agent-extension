@@ -292,7 +292,15 @@ export function createMcpServer(): McpServer {
         inputSchema: config.schema,
       },
       async (args: any) => {
-        console.error(`[MCP] Tool ${toolName} called with args:`, JSON.stringify(args));
+        // For browser_evaluate, use special format for easier copying
+        if (toolName === 'browser_evaluate' && args.script) {
+          console.error(`[MCP] Tool ${toolName} called`);
+          console.error('========== SCRIPT START ==========');
+          console.error(args.script);
+          console.error('========== SCRIPT END ==========');
+        } else {
+          console.error(`[MCP] Tool ${toolName} called with args:`, JSON.stringify(args));
+        }
 
         // Special handling for connection status
         if (toolName === 'browser_get_connection_status') {
@@ -316,6 +324,13 @@ export function createMcpServer(): McpServer {
 
         try {
           const result = await bridgeStore.sendRequest({ action, params: args });
+
+          // For browser_evaluate, use special format for result
+          if (toolName === 'browser_evaluate') {
+            console.error('========== RESULT START ==========');
+            console.error(JSON.stringify(result, null, 2));
+            console.error('========== RESULT END ==========');
+          }
 
           // Special handling for screenshot
           if (toolName === 'browser_screenshot' && result && typeof result === 'object') {
