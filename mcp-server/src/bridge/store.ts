@@ -165,7 +165,9 @@ export class BridgeStore {
         payload,
       };
 
-      logger.debug('BridgeStore', `Sending message: ${JSON.stringify(message)}`);
+      if (logger.isDebugEnabled()) {
+        logger.debug('BridgeStore', `Sending request ${id}: action=${(payload as Record<string, unknown>)?.action ?? 'unknown'}`);
+      }
       this.extensionWs!.send(JSON.stringify(message));
     });
   }

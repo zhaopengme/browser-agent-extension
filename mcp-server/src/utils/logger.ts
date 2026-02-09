@@ -21,6 +21,7 @@ function formatMessage(level: LogLevel, module: string, message: string): string
 }
 
 export const logger = {
+  isDebugEnabled: () => shouldLog('debug'),
   debug: (module: string, message: string, ...args: unknown[]) => {
     if (shouldLog('debug')) {
       console.debug(formatMessage('debug', module, message), ...args);

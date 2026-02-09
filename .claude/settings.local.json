@@ -21,7 +21,8 @@
       "Bash(wc:*)",
       "Bash(chmod:*)",
       "Bash(./ctl.sh)",
-      "Bash(./run.sh)"
+      "Bash(./run.sh)",
+      "Bash(npx tsc:*)"
     ],
     "deny": [],
     "ask": []

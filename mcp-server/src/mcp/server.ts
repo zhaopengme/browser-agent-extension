@@ -292,12 +292,10 @@ export function createMcpServer(): McpServer {
         inputSchema: config.schema,
       },
       async (args: any) => {
-        // For browser_evaluate, use special format for easier copying
         if (toolName === 'browser_evaluate' && args.script) {
-          console.error(`[MCP] Tool ${toolName} called`);
-          console.error('========== SCRIPT START ==========');
-          console.error(args.script);
-          console.error('========== SCRIPT END ==========');
+          const scriptLen = args.script.length;
+          const scriptPreview = scriptLen > 200 ? args.script.slice(0, 200) + '...' : args.script;
+          console.error(`[MCP] Tool ${toolName} called (script: ${scriptLen} chars): ${scriptPreview}`);
         } else {
           console.error(`[MCP] Tool ${toolName} called with args:`, JSON.stringify(args));
         }
@@ -325,13 +323,6 @@ export function createMcpServer(): McpServer {
         try {
           const result = await bridgeStore.sendRequest({ action, params: args });
 
-          // For browser_evaluate, use special format for result
-          if (toolName === 'browser_evaluate') {
-            console.error('========== RESULT START ==========');
-            console.error(JSON.stringify(result, null, 2));
-            console.error('========== RESULT END ==========');
-          }
-
           // Special handling for screenshot
           if (toolName === 'browser_screenshot' && result && typeof result === 'object') {
             const screenshotResult = result as { image?: string; width?: number; height?: number };
@@ -345,7 +336,15 @@ export function createMcpServer(): McpServer {
             }
           }
 
-          return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+          // Serialize once, reuse for logging and response
+          const resultJson = JSON.stringify(result);
+
+          if (toolName === 'browser_evaluate') {
+            const preview = resultJson.length > 500 ? resultJson.slice(0, 500) + '...' : resultJson;
+            console.error(`[MCP] ${toolName} result (${resultJson.length} chars): ${preview}`);
+          }
+
+          return { content: [{ type: 'text' as const, text: resultJson }] };
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Unknown error';
           return { content: [{ type: 'text' as const, text: `Error: ${errorMessage}` }], isError: true };

@@ -241,15 +241,14 @@ async function executeAction(action: string, params: Record<string, unknown>, ta
       const script = params.script as string;
       if (!script) throw new Error('script is required');
 
-      // Print script content for debugging
-      console.log('[Background] Executing script:');
-      console.log('========== SCRIPT START ==========');
-      console.log(script);
-      console.log('========== SCRIPT END ==========');
+      const scriptPreview = script.length > 200 ? script.slice(0, 200) + '...' : script;
+      console.log(`[Background] Executing script (${script.length} chars): ${scriptPreview}`);
 
       const result = await page.evaluate(script);
 
-      console.log('[Background] Script result:', result);
+      const resultStr = typeof result === 'string' ? result : JSON.stringify(result) ?? 'undefined';
+      const resultPreview = resultStr.length > 500 ? resultStr.slice(0, 500) + '...' : resultStr;
+      console.log(`[Background] Script result (${resultStr.length} chars): ${resultPreview}`);
 
       return { result };
     }
