@@ -275,6 +275,17 @@ const toolSchemas = {
   },
 };
 
+function computeBridgeTimeout(toolName: string, args: Record<string, unknown>): number | undefined {
+  const BUFFER_MS = 5000;
+  if ('timeout' in args && typeof args.timeout === 'number') {
+    return args.timeout + BUFFER_MS;
+  }
+  if (toolName === 'browser_wait_for_timeout' && typeof args.ms === 'number') {
+    return args.ms + BUFFER_MS;
+  }
+  return undefined;
+}
+
 export function createMcpServer(): McpServer {
   const server = new McpServer({
     name: 'browser-agent',
@@ -321,7 +332,8 @@ export function createMcpServer(): McpServer {
         }
 
         try {
-          const result = await bridgeStore.sendRequest({ action, params: args });
+          const bridgeTimeout = computeBridgeTimeout(toolName, args);
+          const result = await bridgeStore.sendRequest({ action, params: args }, bridgeTimeout);
 
           // Special handling for screenshot
           if (toolName === 'browser_screenshot' && result && typeof result === 'object') {

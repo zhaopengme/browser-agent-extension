@@ -9,6 +9,7 @@ export class ExtensionTransport {
   private tabId: number;
   private attached: boolean = false;
   private eventListeners: Set<EventCallback> = new Set();
+  private readonly CDP_COMMAND_TIMEOUT = 30000;
 
   constructor(tabId: number) {
     this.tabId = tabId;
@@ -59,14 +60,26 @@ export class ExtensionTransport {
       }
     }
 
-    try {
-      const result = await chrome.debugger.sendCommand(
-        { tabId: this.tabId },
-        method,
-        params
+    const commandPromise = chrome.debugger.sendCommand(
+      { tabId: this.tabId },
+      method,
+      params
+    );
+
+    let timeoutId = 0;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(
+        () => reject(new Error(`CDP command timeout: ${method} (${this.CDP_COMMAND_TIMEOUT}ms)`)),
+        this.CDP_COMMAND_TIMEOUT
       );
+    });
+
+    try {
+      const result = await Promise.race([commandPromise, timeoutPromise]);
+      clearTimeout(timeoutId);
       return result as T;
     } catch (error) {
+      clearTimeout(timeoutId);
       // 检查是否是连接相关的错误
       const errorMessage = error instanceof Error ? error.message : String(error);
       if (errorMessage.includes('detached') || errorMessage.includes('closed')) {

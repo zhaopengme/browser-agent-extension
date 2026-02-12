@@ -8,6 +8,7 @@ interface QueuedRequest {
   payload: unknown;
   resolve: (value: unknown) => void;
   reject: (reason: Error) => void;
+  timeoutMs?: number;
 }
 
 export class BridgeStore {
@@ -18,7 +19,8 @@ export class BridgeStore {
   private requestIdCounter = 0;
   private processingQueue = false;
 
-  private readonly REQUEST_TIMEOUT = 60000; // 60 seconds
+  private readonly DEFAULT_REQUEST_TIMEOUT = 60000; // 60 seconds
+  private readonly MAX_REQUEST_TIMEOUT = 300000; // 5 minutes safety cap
   private readonly MAX_QUEUE_SIZE = 10;
 
   getState(): BridgeState {
@@ -121,7 +123,7 @@ export class BridgeStore {
     return 'req_' + (++this.requestIdCounter) + '_' + now;
   }
 
-  async sendRequest(payload: unknown): Promise<unknown> {
+  async sendRequest(payload: unknown, timeoutMs?: number): Promise<unknown> {
     if (this.state.status === 'idle') {
       throw new Error('Browser extension not connected');
     }
@@ -133,7 +135,7 @@ export class BridgeStore {
       }
       logger.info('BridgeStore', `Queueing request, queue size: ${this.requestQueue.length + 1}`);
       return new Promise((resolve, reject) => {
-        this.requestQueue.push({ payload, resolve, reject });
+        this.requestQueue.push({ payload, resolve, reject, timeoutMs });
       });
     }
 
@@ -141,20 +143,24 @@ export class BridgeStore {
       throw new Error('Browser extension not connected');
     }
 
-    return this.executeRequest(payload);
+    return this.executeRequest(payload, timeoutMs);
   }
 
-  private async executeRequest(payload: unknown): Promise<unknown> {
+  private async executeRequest(payload: unknown, timeoutMs?: number): Promise<unknown> {
     const id = this.nextRequestId();
+    const effectiveTimeout = Math.min(
+      timeoutMs ?? this.DEFAULT_REQUEST_TIMEOUT,
+      this.MAX_REQUEST_TIMEOUT
+    );
 
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(id);
         this.state = { status: 'ready' };
-        reject(new Error('Request timeout'));
+        reject(new Error(`Request timeout (${effectiveTimeout}ms)`));
         // Process next request in queue
         this.processQueue();
-      }, this.REQUEST_TIMEOUT);
+      }, effectiveTimeout);
 
       this.pendingRequests.set(id, { resolve, reject, timeout });
       this.state = { status: 'busy', requestId: id };
@@ -181,7 +187,7 @@ export class BridgeStore {
     while (this.requestQueue.length > 0 && this.state.status === 'ready') {
       const next = this.requestQueue.shift()!;
       try {
-        const result = await this.executeRequest(next.payload);
+        const result = await this.executeRequest(next.payload, next.timeoutMs);
         next.resolve(result);
       } catch (error) {
         next.reject(error instanceof Error ? error : new Error(String(error)));
