@@ -11,6 +11,8 @@ export type ContentMessage =
   // DOM 树操作
   | { type: 'GET_DOM_TREE'; payload?: { selector?: string; maxDepth?: number; excludeTags?: string[] } }
   | { type: 'GET_DOM_TREE_FULL'; payload?: { selector?: string } }
+  | { type: 'GET_DOM_TREE_STRUCTURED'; payload?: { selector?: string; maxDepth?: number } }
+  | { type: 'GET_DOM_TREE_ARIA'; payload?: { selector?: string; maxDepth?: number } }
   // 索引操作（配合紧凑 DOM 树）
   | { type: 'CLICK_BY_INDEX'; payload: { index: number } }
   | { type: 'TYPE_BY_INDEX'; payload: { index: number; text: string; clearFirst?: boolean } }
