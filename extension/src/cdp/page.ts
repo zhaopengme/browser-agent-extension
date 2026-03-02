@@ -283,19 +283,22 @@ export class Page {
 
   /**
    * 点击坐标
+   * @param humanLike 为 true 时模拟真人：轨迹移动、随机延迟、按下/释放间隔
    */
-  async clickAt(x: number, y: number, options: { button?: 'left' | 'right' | 'middle'; clickCount?: number } = {}): Promise<void> {
+  async clickAt(
+    x: number,
+    y: number,
+    options: { button?: 'left' | 'right' | 'middle'; clickCount?: number; humanLike?: boolean } = {}
+  ): Promise<void> {
+    if (options.humanLike) {
+      await this.humanLikeClickAt(x, y, options);
+      return;
+    }
+
     const button = options.button || 'left';
     const clickCount = options.clickCount || 1;
 
-    // 移动鼠标
-    await this.transport.send('Input.dispatchMouseEvent', {
-      type: 'mouseMoved',
-      x,
-      y,
-    });
-
-    // 按下
+    await this.transport.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
     await this.transport.send('Input.dispatchMouseEvent', {
       type: 'mousePressed',
       x,
@@ -303,8 +306,6 @@ export class Page {
       button,
       clickCount,
     });
-
-    // 释放
     await this.transport.send('Input.dispatchMouseEvent', {
       type: 'mouseReleased',
       x,
@@ -317,8 +318,9 @@ export class Page {
   /**
    * 通过选择器点击元素
    * 支持富文本编辑器和 contenteditable 元素
+   * @param humanLike 为 true 时模拟真人点击（轨迹+随机延迟）
    */
-  async clickElement(selector: string): Promise<{ tagName: string; text: string }> {
+  async clickElement(selector: string, options?: { humanLike?: boolean }): Promise<{ tagName: string; text: string }> {
     // 获取元素信息并确保可点击
     const elementInfo = await this.evaluate<{
       x: number;
@@ -399,10 +401,10 @@ export class Page {
       })()
     `);
 
-    // 等待一下确保滚动完成
-    await this.sleep(50);
+    // 等待一下确保滚动完成（拟人化时多等一点）
+    await this.sleep(options?.humanLike ? 100 : 50);
 
-    await this.clickAt(elementInfo.x, elementInfo.y);
+    await this.clickAt(elementInfo.x, elementInfo.y, { humanLike: options?.humanLike });
 
     return {
       tagName: elementInfo.tagName,
@@ -649,6 +651,54 @@ export class Page {
    */
   private sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /** 随机区间 [min, max] 的整数 */
+  private randomInt(min: number, max: number): number {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+
+  /**
+   * 拟人化点击：移动轨迹 + 随机延迟 + 按下/释放间隔
+   */
+  private async humanLikeClickAt(
+    x: number,
+    y: number,
+    options: { button?: 'left' | 'right' | 'middle'; clickCount?: number } = {}
+  ): Promise<void> {
+    const button = options.button || 'left';
+    const clickCount = options.clickCount || 1;
+    // 微小随机偏移，不总是正中心
+    const offsetX = this.randomInt(-3, 3);
+    const offsetY = this.randomInt(-3, 3);
+    const targetX = x + offsetX;
+    const targetY = y + offsetY;
+
+    // 点击前随机停顿（像人在确认目标）
+    await this.sleep(this.randomInt(80, 180));
+
+    // 分步移动鼠标（模拟轨迹，内部每步约 10ms）
+    const steps = this.randomInt(8, 14);
+    await this.moveMouse(targetX, targetY, steps);
+
+    // 按下
+    await this.transport.send('Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      x: targetX,
+      y: targetY,
+      button,
+      clickCount,
+    });
+    // 按下与释放之间的间隔（真人会有 30–80ms）
+    await this.sleep(this.randomInt(30, 80));
+    // 释放
+    await this.transport.send('Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      x: targetX,
+      y: targetY,
+      button,
+      clickCount,
+    });
   }
 
   /**

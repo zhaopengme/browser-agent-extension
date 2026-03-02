@@ -14,17 +14,56 @@ function getElementByIndex(index: number): Element | undefined {
   return elementIndexMap.get(index);
 }
 
-export function clickElementByIndex(index: number): ContentResponse<{ tagName: string; text: string }> {
+function randomInt(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * 拟人化点击：平滑滚动 + 随机延迟 + mousedown → 间隔 → mouseup → click
+ */
+async function humanLikeClick(el: HTMLElement): Promise<void> {
+  el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+  await delay(randomInt(350, 550));
+
+  await delay(randomInt(50, 120));
+  if (!document.contains(el)) {
+    throw new Error('Element was removed from DOM during human-like click delay');
+  }
+  const rect = el.getBoundingClientRect();
+  const x = rect.left + rect.width / 2 + randomInt(-3, 3);
+  const y = rect.top + rect.height / 2 + randomInt(-3, 3);
+
+  const opts: MouseEventInit = { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 };
+  el.dispatchEvent(new MouseEvent('mousedown', opts));
+  await delay(randomInt(30, 70));
+  el.dispatchEvent(new MouseEvent('mouseup', opts));
+  el.click();
+}
+
+/**
+ * 按索引点击元素。humanLike 为 true 时模拟真人：平滑滚动、随机延迟、完整鼠标事件序列。
+ * 返回 Promise，调用方需 await 或 .then(sendResponse)。
+ */
+export async function clickElementByIndex(
+  index: number,
+  humanLike?: boolean
+): Promise<ContentResponse<{ tagName: string; text: string }>> {
   const el = getElementByIndex(index);
   if (!el) {
     return { success: false, error: `Element with index ${index} not found. Please refresh DOM tree first.` };
   }
 
   try {
-    el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
-
-    (el as HTMLElement).click();
-
+    if (humanLike) {
+      await humanLikeClick(el as HTMLElement);
+    } else {
+      el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
+      (el as HTMLElement).click();
+    }
     return {
       success: true,
       data: {

@@ -14,7 +14,7 @@ const toolSchemas = {
     }),
   },
   browser_click: {
-    description: "Click an element. Prefer 'index' from browser_get_dom_tree for reliability. Alternatively use CSS selector or coordinates. Returns clicked element's tagName and text.",
+    description: "Click an element. Prefer 'index' from browser_get_dom_tree for reliability. Set humanLike=true to simulate human behavior (mouse movement, random delays, smooth scroll). Alternatively use CSS selector or coordinates. Returns clicked element's tagName and text.",
     schema: z.object({
       index: z.number().optional().describe('Element index from browser_get_dom_tree (preferred)'),
       selector: z.string().optional().describe('CSS selector (fallback if no index)'),
@@ -22,6 +22,7 @@ const toolSchemas = {
       y: z.number().optional().describe('Y coordinate for click (use with x)'),
       button: z.enum(['left', 'right', 'middle']).optional().describe('Mouse button, default left'),
       clickCount: z.number().optional().describe('Number of clicks, default 1'),
+      humanLike: z.boolean().optional().describe('Simulate human: mouse trajectory, random delays, smooth scroll. Default true; set false for instant click'),
     }),
   },
   browser_type: {

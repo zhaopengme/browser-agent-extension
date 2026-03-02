@@ -70,7 +70,7 @@ chrome.runtime.onMessage.addListener(
         if (message.payload?.index === undefined) {
           sendResponse({ success: false, error: 'index is required' });
         } else {
-          sendResponse(clickElementByIndex(message.payload.index));
+          clickElementByIndex(message.payload.index, message.payload.humanLike !== false).then(sendResponse);
         }
         return true;
 

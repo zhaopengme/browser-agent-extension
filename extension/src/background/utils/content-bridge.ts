@@ -7,42 +7,96 @@ import { getTargetTabId } from './tab-utils';
 import { withRetry } from './retry';
 import { BrowserAgentError } from '@/types/errors';
 
+const PING_RETRIES = 5;
+const PING_INTERVAL_MS = 500;
+
 /**
- * Get content script file path from manifest
+ * Send a PING and resolve true if content script responds, false otherwise.
  */
-function getContentScriptPath(): string {
-  const manifest = chrome.runtime.getManifest();
-  const contentScripts = manifest.content_scripts;
-  if (contentScripts && contentScripts.length > 0 && contentScripts[0].js) {
-    return contentScripts[0].js[0];
+async function pingContentScript(tabId: number): Promise<boolean> {
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: 'PING' });
+    return true;
+  } catch {
+    return false;
   }
-  return 'src/content/index.ts';
+}
+
+/**
+ * Find the actual content script module path from manifest's web_accessible_resources.
+ * CRXJS puts the real module (e.g. "assets/index.ts-XXXX.js") there.
+ */
+function getContentScriptModulePath(): string | null {
+  const manifest = chrome.runtime.getManifest();
+  const resources = manifest.web_accessible_resources;
+  if (!resources) return null;
+
+  for (const entry of resources) {
+    const res = (entry as { resources?: string[] }).resources;
+    if (!res) continue;
+    const match = res.find(
+      r => r.startsWith('assets/index.ts-') && r.endsWith('.js') && !r.endsWith('.map')
+    );
+    if (match) return match;
+  }
+  return null;
 }
 
 /**
  * Ensure content script is injected into the specified tab.
- * If not injected, attempts programmatic injection via chrome.scripting.
+ *
+ * Strategy:
+ * 1. PING the content script — if it responds, we're good.
+ * 2. If PING fails, retry several times with delay (manifest-declared
+ *    content scripts auto-inject but may not be ready yet after navigation).
+ * 3. If all PINGs fail (e.g. tab existed before extension was installed),
+ *    programmatically inject by dynamically importing the actual module
+ *    (NOT the CRXJS loader, which doesn't work with executeScript).
  */
 export async function ensureContentScriptInjected(tabId: number): Promise<void> {
-  try {
-    await chrome.tabs.sendMessage(tabId, { type: 'PING' });
-  } catch {
-    console.log('[Background] Content script not loaded, injecting...');
-    try {
-      const contentScriptPath = getContentScriptPath();
-      console.log('[Background] Injecting content script:', contentScriptPath);
-      await chrome.scripting.executeScript({
-        target: { tabId },
-        files: [contentScriptPath],
-      });
-      await new Promise(resolve => setTimeout(resolve, 100));
-      console.log('[Background] Content script injected successfully');
-    } catch (injectError) {
-      console.error('[Background] Failed to inject content script:', injectError);
-      throw new Error(
-        'Failed to inject content script. This page may not support browser automation (e.g., chrome:// pages).'
-      );
+  if (await pingContentScript(tabId)) return;
+
+  console.log('[Background] Content script not responding, waiting for auto-injection...');
+
+  for (let i = 0; i < PING_RETRIES; i++) {
+    await new Promise(resolve => setTimeout(resolve, PING_INTERVAL_MS));
+    if (await pingContentScript(tabId)) {
+      console.log(`[Background] Content script responded after ${i + 1} retries`);
+      return;
     }
+  }
+
+  console.log('[Background] Auto-injection timed out, attempting programmatic injection...');
+  const modulePath = getContentScriptModulePath();
+  if (!modulePath) {
+    throw new BrowserAgentError(
+      'Cannot determine content script module path from manifest.',
+      'CONTENT_SCRIPT_ERROR'
+    );
+  }
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (path: string) => {
+        const url = chrome.runtime.getURL(path);
+        import(/* @vite-ignore */ url);
+      },
+      args: [modulePath],
+      world: 'ISOLATED' as chrome.scripting.ExecutionWorld,
+    });
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    if (!(await pingContentScript(tabId))) {
+      throw new Error('Content script did not respond after programmatic injection');
+    }
+    console.log('[Background] Content script injected programmatically');
+  } catch (injectError) {
+    console.error('[Background] Failed to inject content script:', injectError);
+    throw new BrowserAgentError(
+      'Failed to inject content script. This page may not support browser automation (e.g., chrome:// pages).',
+      'CONTENT_SCRIPT_ERROR'
+    );
   }
 }
 

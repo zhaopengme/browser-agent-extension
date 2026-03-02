@@ -8,15 +8,16 @@ import { requireParam, requireOneOf } from '../utils/validate';
 import { BrowserAgentError } from '@/types/errors';
 
 const click: ActionHandler = async ({ page, params, tabId }) => {
+  const humanLike = params.humanLike !== false;
   if (params.index !== undefined) {
     const result = await sendContentCommand<{ tagName?: string; text?: string }>(
       'CLICK_BY_INDEX',
-      { index: params.index },
+      { index: params.index, humanLike },
       tabId
     );
     return { clicked: true, tagName: result.tagName, text: result.text };
   } else if (params.selector) {
-    const result = await page.clickElement(params.selector as string);
+    const result = await page.clickElement(params.selector as string, { humanLike });
     return { clicked: true, element: result };
   } else if (params.x !== undefined) {
     if (params.y === undefined) {
@@ -25,6 +26,7 @@ const click: ActionHandler = async ({ page, params, tabId }) => {
     await page.clickAt(params.x as number, params.y as number, {
       button: params.button as 'left' | 'right' | 'middle',
       clickCount: params.clickCount as number,
+      humanLike,
     });
     return { clicked: true };
   }

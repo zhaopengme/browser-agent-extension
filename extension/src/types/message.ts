@@ -14,7 +14,7 @@ export type ContentMessage =
   | { type: 'GET_DOM_TREE_STRUCTURED'; payload?: { selector?: string; maxDepth?: number } }
   | { type: 'GET_DOM_TREE_ARIA'; payload?: { selector?: string; maxDepth?: number } }
   // 索引操作（配合紧凑 DOM 树）
-  | { type: 'CLICK_BY_INDEX'; payload: { index: number } }
+  | { type: 'CLICK_BY_INDEX'; payload: { index: number; humanLike?: boolean } }
   | { type: 'TYPE_BY_INDEX'; payload: { index: number; text: string; clearFirst?: boolean } }
   // 在当前聚焦元素中输入
   | { type: 'TYPE_IN_FOCUSED'; payload: { text: string; clearFirst?: boolean } }
