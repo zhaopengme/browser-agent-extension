@@ -37,7 +37,7 @@ export const infoTools: Tool[] = [
   },
   {
     name: 'browser_screenshot',
-    description: 'Take a screenshot of the current page.',
+    description: 'Take a screenshot of the current page. Saves to a local file and returns the file path.',
     inputSchema: {
       type: 'object',
       properties: {

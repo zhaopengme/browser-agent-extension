@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { getActionFromToolName } from './tools/index.js';
 import { bridgeStore } from '../bridge/store.js';
+import { saveScreenshot } from '../utils/screenshot.js';
 import pkg from '../../package.json' with { type: 'json' };
 
 // Define all tool schemas using Zod
@@ -65,7 +66,7 @@ const toolSchemas = {
   },
   // Info
   browser_screenshot: {
-    description: 'Capture a screenshot. Returns a base64 image. Use maxWidth to reduce image size for faster processing. Default format is PNG; use JPEG with quality param for smaller output.',
+    description: 'Capture a screenshot and save to a local file. Returns the file path. Use maxWidth to reduce image size. Default format is PNG; use JPEG with quality param for smaller output.',
     schema: z.object({
       fullPage: z.boolean().optional().describe('Capture full page including off-screen content, default false'),
       format: z.enum(['png', 'jpeg', 'webp']).optional().describe('Image format, default png'),
@@ -371,14 +372,18 @@ export function createMcpServer(): McpServer {
           const duration = Date.now() - start;
           console.error(`[MCP] ${toolName} completed in ${duration}ms`);
 
-          // Special handling for screenshot
+          // Special handling for screenshot - save to file instead of returning base64
           if (toolName === 'browser_screenshot' && result && typeof result === 'object') {
             const screenshotResult = result as { image?: string; width?: number; height?: number };
             if (screenshotResult.image) {
+              const format = (args.format as string) || 'png';
+              const filePath = saveScreenshot(screenshotResult.image, format);
               return {
                 content: [
-                  { type: 'image' as const, data: screenshotResult.image, mimeType: 'image/png' },
-                  { type: 'text' as const, text: `Screenshot captured: ${screenshotResult.width}x${screenshotResult.height}` },
+                  {
+                    type: 'text' as const,
+                    text: `Screenshot saved: ${filePath}\nDimensions: ${screenshotResult.width}x${screenshotResult.height}\nFormat: ${format}`,
+                  },
                 ],
               };
             }
