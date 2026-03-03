@@ -376,8 +376,8 @@ export function createMcpServer(): McpServer {
           if (toolName === 'browser_screenshot' && result && typeof result === 'object') {
             const screenshotResult = result as { image?: string; width?: number; height?: number };
             if (screenshotResult.image) {
-              const format = (args.format as string) || 'png';
-              const filePath = saveScreenshot(screenshotResult.image, format);
+              const format = ((args.format as string) || 'png') as 'png' | 'jpeg' | 'webp';
+              const filePath = await saveScreenshot(screenshotResult.image, format);
               return {
                 content: [
                   {
