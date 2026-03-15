@@ -132,8 +132,8 @@ function addLog(action: string, detail: string, status: 'pending' | 'success' | 
 
   logContainer.scrollTop = logContainer.scrollHeight;
 
-  // 更新计数
-  logEntryCount++;
+  // 更新计数（反映当前可见条目数）
+  logEntryCount = logContainer.children.length;
   updateLogCount();
 }
 
