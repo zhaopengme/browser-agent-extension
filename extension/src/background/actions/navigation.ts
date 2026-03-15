@@ -5,52 +5,34 @@
 import type { ActionHandler } from '../router';
 import { requireParam } from '../utils/validate';
 
+async function waitForLoad(page: Parameters<ActionHandler>[0]['page']): Promise<void> {
+  await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
+  await page.ensureConnected();
+}
+
 const navigate: ActionHandler = async ({ page, params }) => {
   const url = requireParam<string>(params, 'url', 'string');
-
-  try {
-    await page.navigateTo(url);
-    await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
-  } catch {
-    await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
-  }
-
-  await page.ensureConnected();
-
+  await page.navigateTo(url);
+  await waitForLoad(page);
   const info = await page.getPageInfo();
   return { url: info.url, title: info.title };
 };
 
 const go_back: ActionHandler = async ({ page }) => {
-  try {
-    await page.goBack();
-    await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
-  } catch {
-    await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
-  }
-  await page.ensureConnected();
+  await page.goBack();
+  await waitForLoad(page);
   return { navigated: true };
 };
 
 const go_forward: ActionHandler = async ({ page }) => {
-  try {
-    await page.goForward();
-    await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
-  } catch {
-    await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
-  }
-  await page.ensureConnected();
+  await page.goForward();
+  await waitForLoad(page);
   return { navigated: true };
 };
 
 const reload: ActionHandler = async ({ page }) => {
-  try {
-    await page.reload();
-    await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
-  } catch {
-    await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
-  }
-  await page.ensureConnected();
+  await page.reload();
+  await waitForLoad(page);
   return { reloaded: true };
 };
 
