@@ -74,6 +74,15 @@ const toolSchemas = {
       maxWidth: z.number().optional().describe('Max width in pixels - scales down if page is wider (reduces token usage)'),
     }),
   },
+  browser_screenshot_annotated: {
+    description: 'Take an annotated screenshot with interactive elements highlighted and numbered. Returns file path and element index list. Use this instead of calling get_dom_tree + screenshot separately.',
+    schema: z.object({
+      fullPage: z.boolean().optional().describe('Capture full page including off-screen content, default false'),
+      format: z.enum(['png', 'jpeg', 'webp']).optional().describe('Image format, default png'),
+      quality: z.number().min(1).max(100).optional().describe('JPEG/WebP quality (1-100), default 80'),
+      maxWidth: z.number().optional().describe('Max width in pixels - scales down if page is wider'),
+    }),
+  },
   browser_extract: {
     description: 'Extract text and HTML content from an element matching a CSS selector.',
     schema: z.object({
@@ -379,7 +388,7 @@ export function createMcpServer(): McpServer {
         }
 
         // Apply screenshot defaults to reduce file size (~3.5MB PNG → ~200-400KB JPEG)
-        if (toolName === 'browser_screenshot') {
+        if (toolName === 'browser_screenshot' || toolName === 'browser_screenshot_annotated') {
           args = {
             format: 'jpeg',
             quality: 60,
@@ -396,10 +405,10 @@ export function createMcpServer(): McpServer {
           console.error(`[MCP] ${toolName} completed in ${duration}ms`);
 
           // Special handling for screenshot - save to file instead of returning base64
-          if (toolName === 'browser_screenshot' && result && typeof result === 'object') {
+          if ((toolName === 'browser_screenshot' || toolName === 'browser_screenshot_annotated') && result && typeof result === 'object') {
             // Extension may return direct { image, width, height } or wrapped { success, data: { image, width, height } }
             const raw = result as Record<string, unknown>;
-            const screenshotResult = (raw.data && typeof raw.data === 'object' ? raw.data : raw) as { image?: string; width?: number; height?: number };
+            const screenshotResult = (raw.data && typeof raw.data === 'object' ? raw.data : raw) as { image?: string; width?: number; height?: number; elements?: string; elementCount?: number };
             if (screenshotResult.image) {
               const format = (args.format as 'png' | 'jpeg' | 'webp') || 'jpeg';
               const filePath = await saveScreenshot(screenshotResult.image, format);
@@ -407,7 +416,7 @@ export function createMcpServer(): McpServer {
                 content: [
                   {
                     type: 'text' as const,
-                    text: `Screenshot saved: ${filePath}\nDimensions: ${screenshotResult.width}x${screenshotResult.height}\nFormat: ${format}`,
+                    text: `Screenshot saved: ${filePath}\nDimensions: ${screenshotResult.width}x${screenshotResult.height}\nFormat: ${format}${screenshotResult.elements ? `\nElements (${screenshotResult.elementCount}): ${screenshotResult.elements}` : ''}`,
                   },
                 ],
               };

@@ -11,6 +11,7 @@ export function getActionFromToolName(toolName: string): string {
     browser_type: 'type',
     browser_scroll: 'scroll',
     browser_screenshot: 'screenshot',
+    browser_screenshot_annotated: 'screenshot_annotated',
     browser_extract: 'extract',
     browser_evaluate: 'evaluate',
     browser_get_page_info: 'get_page_info',
