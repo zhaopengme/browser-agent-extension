@@ -184,17 +184,19 @@ export class BridgeStore {
 
     this.processingQueue = true;
 
-    while (this.requestQueue.length > 0 && this.state.status === 'ready') {
-      const next = this.requestQueue.shift()!;
-      try {
-        const result = await this.executeRequest(next.payload, next.timeoutMs);
-        next.resolve(result);
-      } catch (error) {
-        next.reject(error instanceof Error ? error : new Error(String(error)));
+    try {
+      while (this.requestQueue.length > 0 && this.state.status === 'ready') {
+        const next = this.requestQueue.shift()!;
+        try {
+          const result = await this.executeRequest(next.payload, next.timeoutMs);
+          next.resolve(result);
+        } catch (error) {
+          next.reject(error instanceof Error ? error : new Error(String(error)));
+        }
       }
+    } finally {
+      this.processingQueue = false;
     }
-
-    this.processingQueue = false;
   }
 
   resolveResponse(id: string, result: unknown): void {
