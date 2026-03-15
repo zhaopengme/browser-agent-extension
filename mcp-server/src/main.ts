@@ -12,14 +12,12 @@
 
 import { Hono } from 'hono';
 import { websocket } from 'hono/bun';
-import { mcpHandler } from './mcp/handler.js';
+import { mcpHandler, mcpServer } from './mcp/handler.js';
 import { wsHandler } from './ws/handler.js';
 import { bridgeStore } from './bridge/store.js';
 import { logger } from './utils/logger.js';
-import { createMcpServer } from './mcp/server.js';
 
 const app = new Hono();
-const mcpServer = createMcpServer();
 
 // Simple request logging middleware
 app.use('*', async (c, next) => {

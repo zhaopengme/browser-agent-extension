@@ -3,7 +3,7 @@ import { StreamableHTTPTransport } from '@hono/mcp';
 import { logger } from '../utils/logger.js';
 import { createMcpServer } from './server.js';
 
-const mcpServer = createMcpServer();
+export const mcpServer = createMcpServer();
 const transport = new StreamableHTTPTransport();
 
 // Connection lock to prevent race conditions
