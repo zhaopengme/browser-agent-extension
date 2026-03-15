@@ -55,25 +55,6 @@ export class BridgeStore {
     }
   }
 
-  /**
-   * Try to ping the existing connection, clean it up if it fails
-   */
-  async checkAndCleanupDeadConnection(): Promise<boolean> {
-    if (this.extensionWs === null || this.state.status === 'idle') {
-      return false; // No connection to check
-    }
-
-    const ws = this.extensionWs as unknown as WebSocket;
-    if (ws.readyState !== 1) {
-      logger.warn('BridgeStore', 'Dead connection detected, cleaning up');
-      this.cleanup();
-      return false;
-    }
-
-    // Connection appears to be alive
-    return true;
-  }
-
   isReady(): boolean {
     return this.state.status === 'ready';
   }
