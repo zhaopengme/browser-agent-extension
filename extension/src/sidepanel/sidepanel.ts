@@ -188,6 +188,18 @@ function setSettingsEnabled(enabled: boolean): void {
 }
 
 /**
+ * 安全发送 WebSocket 消息，防止在连接关闭时发送失败
+ */
+function safeSend(message: object): boolean {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(message));
+    return true;
+  }
+  console.warn('[SidePanel] Cannot send: WebSocket not open');
+  return false;
+}
+
+/**
  * 连接 WebSocket
  */
 function connect(): void {
@@ -215,7 +227,7 @@ function connect(): void {
 
       // Send HELLO message to complete handshake
       const helloMessage = { type: 'HELLO', version: chrome.runtime.getManifest().version };
-      ws?.send(JSON.stringify(helloMessage));
+      safeSend(helloMessage);
       console.log('[SidePanel] Handshake message sent');
     };
 
@@ -266,7 +278,7 @@ function connect(): void {
                 error: `Failed to get active tab: ${error instanceof Error ? error.message : 'Unknown error'}`
               }
             };
-            ws?.send(JSON.stringify(errorResponse));
+            safeSend(errorResponse);
             addLog(action, 'no active tab', 'error');
             return;
           }
@@ -287,7 +299,7 @@ function connect(): void {
             payload: response,
           };
 
-          ws?.send(JSON.stringify(wsResponse));
+          safeSend(wsResponse);
 
           if (response.success) {
             addLog(action, 'completed', 'success');
