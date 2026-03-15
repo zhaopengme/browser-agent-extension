@@ -14,11 +14,8 @@ let connectionLock: Promise<void> | null = null;
 
 export const wsHandler = upgradeWebSocket((c: Context) => {
   let helloTimer: ReturnType<typeof setTimeout> | null = null;
-  let thisWs: WSContext | null = null;
-
   return {
     onOpen: async (event: Event, ws: WSContext) => {
-      thisWs = ws;
       logger.info('WS', 'Extension connection attempt');
 
       // Acquire lock to prevent race conditions
@@ -133,11 +130,19 @@ export const wsHandler = upgradeWebSocket((c: Context) => {
 
       // Always try to remove - the store will check if it's the stored one
       bridgeStore.removeExtension(ws);
-      thisWs = null;
     },
 
     onError: (event: Event, ws: WSContext) => {
       logger.error('WS', 'WebSocket error', event);
+
+      // Clear HELLO timer if still pending
+      if (helloTimer) {
+        clearTimeout(helloTimer);
+        helloTimer = null;
+      }
+
+      // Clean up bridge in case onClose doesn't fire
+      bridgeStore.removeExtension(ws);
     },
   };
 });
