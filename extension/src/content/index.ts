@@ -12,6 +12,7 @@ import { getElementInfo, extractElements, scrollToElement, highlightElement } fr
 import { executeScript } from './execute';
 import { getResourceUrlByIndex, fetchResourceInPageContext } from './resource';
 import { convertToMarkdown } from './markdown';
+import { createAnnotations, removeAnnotations } from './annotate';
 
 chrome.runtime.onMessage.addListener(
   (message: ContentMessage, _sender, sendResponse) => {
@@ -192,6 +193,26 @@ chrome.runtime.onMessage.addListener(
             error: error instanceof Error ? error.message : 'Failed to fetch resource'
           });
         });
+        return true;
+
+      case 'ANNOTATE_ELEMENTS':
+        try {
+          const result = createAnnotations({
+            selector: message.payload?.selector,
+            maxDepth: message.payload?.maxDepth,
+          });
+          sendResponse({ success: true, data: result });
+        } catch (error) {
+          sendResponse({
+            success: false,
+            error: error instanceof Error ? error.message : 'Failed to create annotations',
+          });
+        }
+        return true;
+
+      case 'REMOVE_ANNOTATIONS':
+        removeAnnotations();
+        sendResponse({ success: true });
         return true;
 
       default:
