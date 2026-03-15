@@ -66,7 +66,7 @@ const toolSchemas = {
   },
   // Info
   browser_screenshot: {
-    description: 'Capture a screenshot and save to a local file. Returns the file path. Use maxWidth to reduce image size. Default format is PNG; use JPEG with quality param for smaller output.',
+    description: 'Capture a screenshot and save to a local file. Returns the file path. Defaults: JPEG format, quality 60, maxWidth 1280px. Override with format/quality/maxWidth params for higher fidelity.',
     schema: z.object({
       fullPage: z.boolean().optional().describe('Capture full page including off-screen content, default false'),
       format: z.enum(['png', 'jpeg', 'webp']).optional().describe('Image format, default png'),
@@ -365,6 +365,16 @@ export function createMcpServer(): McpServer {
           };
         }
 
+        // Apply screenshot defaults to reduce file size (~3.5MB PNG → ~200-400KB JPEG)
+        if (toolName === 'browser_screenshot') {
+          args = {
+            format: 'jpeg',
+            quality: 60,
+            maxWidth: 1280,
+            ...args,
+          };
+        }
+
         try {
           const start = Date.now();
           const bridgeTimeout = computeBridgeTimeout(toolName, args);
@@ -374,9 +384,11 @@ export function createMcpServer(): McpServer {
 
           // Special handling for screenshot - save to file instead of returning base64
           if (toolName === 'browser_screenshot' && result && typeof result === 'object') {
-            const screenshotResult = result as { image?: string; width?: number; height?: number };
+            // Extension may return direct { image, width, height } or wrapped { success, data: { image, width, height } }
+            const raw = result as Record<string, unknown>;
+            const screenshotResult = (raw.data && typeof raw.data === 'object' ? raw.data : raw) as { image?: string; width?: number; height?: number };
             if (screenshotResult.image) {
-              const format = ((args.format as string) || 'png') as 'png' | 'jpeg' | 'webp';
+              const format = (args.format as 'png' | 'jpeg' | 'webp') || 'jpeg';
               const filePath = await saveScreenshot(screenshotResult.image, format);
               return {
                 content: [
