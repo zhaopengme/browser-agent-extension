@@ -7,14 +7,12 @@ import type { NoPageActionHandler } from '../router';
 import { requireParam } from '../utils/validate';
 
 async function sendOverlayMessage(type: string, payload: unknown, tabId?: number): Promise<void> {
-  try {
-    const targetTabId = await getTargetTabId(tabId);
-    if (targetTabId) {
-      await chrome.tabs.sendMessage(targetTabId, { type, payload });
-    }
-  } catch (error) {
-    console.debug(`[Background] ${type} failed:`, error);
+  const targetTabId = await getTargetTabId(tabId);
+  if (!targetTabId) {
+    console.debug(`[Background] ${type}: no target tab`);
+    return;
   }
+  await chrome.tabs.sendMessage(targetTabId, { type, payload });
 }
 
 const lock: NoPageActionHandler = async (params, tabId) => {
