@@ -8,6 +8,7 @@ const DEFAULT_PORT = 3026;
 const RECONNECT_DELAY = 5000;
 const MAX_RECONNECT_ATTEMPTS = 10;
 const STORAGE_KEY = 'browserAgentSettings';
+const MAX_LOG_ENTRIES = 200;
 
 interface Settings {
   host: string;
@@ -123,6 +124,12 @@ function addLog(action: string, detail: string, status: 'pending' | 'success' | 
   `;
 
   logContainer.appendChild(entry);
+
+  // Trim old entries if exceeding limit
+  while (logContainer.children.length > MAX_LOG_ENTRIES) {
+    logContainer.removeChild(logContainer.firstChild!);
+  }
+
   logContainer.scrollTop = logContainer.scrollHeight;
 
   // 更新计数
