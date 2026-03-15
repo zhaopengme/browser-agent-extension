@@ -3,16 +3,8 @@
  */
 
 import type { ContentResponse } from '@/types/message';
-import { elementIndexMap } from './state';
+import { getElementByIndex } from './state';
 import { getAccessibleName } from './dom-tree-compact';
-
-function getElementByIndex(index: number): Element | undefined {
-  const elementByAttr = document.querySelector(`[data-agent-index="${index}"]`);
-  if (elementByAttr) {
-    return elementByAttr;
-  }
-  return elementIndexMap.get(index);
-}
 
 function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;

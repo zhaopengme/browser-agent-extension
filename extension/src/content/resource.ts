@@ -3,15 +3,7 @@
  */
 
 import type { ContentResponse } from '@/types/message';
-import { elementIndexMap } from './state';
-
-function getElementByIndex(index: number): Element | undefined {
-  const elementByAttr = document.querySelector(`[data-agent-index="${index}"]`);
-  if (elementByAttr) {
-    return elementByAttr;
-  }
-  return elementIndexMap.get(index);
-}
+import { getElementByIndex } from './state';
 
 function getResourceUrlFromElement(element: Element): string | null {
   const tag = element.tagName.toLowerCase();
