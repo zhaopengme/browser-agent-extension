@@ -16,10 +16,6 @@
     "vite": "^6.0.1"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^2.0.50",
-    "@ai-sdk/google": "^2.0.44",
-    "@ai-sdk/openai": "^2.0.75",
-    "ai": "^5.0.104",
     "turndown": "^7.2.2"
   }
 }
