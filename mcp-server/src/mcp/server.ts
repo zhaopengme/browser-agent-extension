@@ -139,6 +139,19 @@ const toolSchemas = {
       tabId: z.number().describe('Tab ID to switch to (from browser_get_tabs)'),
     }),
   },
+  browser_create_tab: {
+    description: 'Create a new browser tab. Switches to it by default. Use background param to keep current tab active.',
+    schema: z.object({
+      url: z.string().optional().describe('URL to open, defaults to about:blank'),
+      background: z.boolean().optional().describe('If true, open in background without switching to it'),
+    }),
+  },
+  browser_close_tab: {
+    description: 'Close a browser tab. Defaults to current active tab. When closing the active tab, automatically switches to the most recently used tab.',
+    schema: z.object({
+      tabId: z.number().optional().describe('Tab ID to close. Defaults to current active tab.'),
+    }),
+  },
   browser_blur: {
     description: 'Remove focus from the currently focused element or a specific element. Useful after typing to trigger blur events.',
     schema: z.object({

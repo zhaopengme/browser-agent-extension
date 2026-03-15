@@ -21,6 +21,8 @@ export function getActionFromToolName(toolName: string): string {
     browser_markdown: 'markdown',
     browser_get_tabs: 'get_tabs',
     browser_switch_tab: 'switch_tab',
+    browser_create_tab: 'create_tab',
+    browser_close_tab: 'close_tab',
     browser_press_key: 'press_key',
     browser_blur: 'blur',
     browser_select_option: 'select_option',
