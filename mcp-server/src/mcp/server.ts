@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { getActionFromToolName } from './tools/index.js';
+import { getCookiesSchema, setCookieSchema, deleteCookiesSchema } from './tools/cookie-schemas.js';
 import { bridgeStore } from '../bridge/store.js';
 import { saveScreenshot } from '../utils/screenshot.js';
 import pkg from '../../package.json' with { type: 'json' };
@@ -310,6 +311,19 @@ const toolSchemas = {
       index: z.number().optional().describe('Element index from browser_get_dom_tree (for img, video, audio, download links)'),
       selector: z.string().optional().describe('CSS selector (not yet implemented, use index instead)'),
     }),
+  },
+  // Cookies
+  browser_get_cookies: {
+    description: 'Get browser cookies for the current page or specified URLs. Returns full cookie details including domain, path, httpOnly, secure, sameSite, expiration, and partitionKey (when present). If no URLs specified, returns cookies for the current page and all its subframes.',
+    schema: getCookiesSchema,
+  },
+  browser_set_cookie: {
+    description: 'Set a browser cookie with full attribute control. You MUST provide either a url OR a domain (not both). On success returns {success: true}; on failure throws a protocol error.',
+    schema: setCookieSchema,
+  },
+  browser_delete_cookies: {
+    description: 'Delete browser cookies by name. Optionally narrow down by url, domain, or path to target specific cookies. Note: reports command completion, not whether a matching cookie actually existed.',
+    schema: deleteCookiesSchema,
   },
   // Lock/Unlock overlay
   browser_lock: {

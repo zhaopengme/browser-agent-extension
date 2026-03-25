@@ -51,6 +51,9 @@ export function getActionFromToolName(toolName: string): string {
     browser_right_click: 'right_click',
     browser_download: 'download',
     browser_get_connection_status: 'get_connection_status',
+    browser_get_cookies: 'get_cookies',
+    browser_set_cookie: 'set_cookie',
+    browser_delete_cookies: 'delete_cookies',
   };
   return mapping[toolName] || toolName;
 }

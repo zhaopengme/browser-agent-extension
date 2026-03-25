@@ -16,6 +16,7 @@ import { waitHandlers } from './actions/wait';
 import { dialogHandlers } from './actions/dialog';
 import { consoleHandlers } from './actions/console';
 import { downloadHandlers } from './actions/download';
+import { cookieHandlers } from './actions/cookie';
 import { BrowserAgentError } from '@/types/errors';
 
 export interface ActionContext {
@@ -45,6 +46,7 @@ const pageActions: Record<string, ActionHandler> = {
   ...dialogHandlers,
   ...consoleHandlers,
   ...downloadHandlers,
+  ...cookieHandlers,
 };
 
 export async function executeAction(

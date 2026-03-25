@@ -45,6 +45,9 @@ const ALL_TOOL_NAMES = [
   'browser_double_click',
   'browser_right_click',
   'browser_download',
+  'browser_get_cookies',
+  'browser_set_cookie',
+  'browser_delete_cookies',
   'browser_lock',
   'browser_unlock',
   'browser_update_status',
@@ -102,6 +105,18 @@ describe('Tool name to action mapping', () => {
 
   it('should map browser_markdown to markdown', () => {
     expect(getActionFromToolName('browser_markdown')).toBe('markdown');
+  });
+
+  it('should map browser_get_cookies to get_cookies', () => {
+    expect(getActionFromToolName('browser_get_cookies')).toBe('get_cookies');
+  });
+
+  it('should map browser_set_cookie to set_cookie', () => {
+    expect(getActionFromToolName('browser_set_cookie')).toBe('set_cookie');
+  });
+
+  it('should map browser_delete_cookies to delete_cookies', () => {
+    expect(getActionFromToolName('browser_delete_cookies')).toBe('delete_cookies');
   });
 
   it('should return tool name as fallback for unknown tools', () => {

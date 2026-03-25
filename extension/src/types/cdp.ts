@@ -176,3 +176,50 @@ export type ResourceType =
   | 'Ping'
   | 'CSPViolationReport'
   | 'Other';
+
+// Cookie 类型 (CDP Network.Cookie)
+export type CookieSameSite = 'Strict' | 'Lax' | 'None';
+
+export interface CookiePartitionKey {
+  topLevelSite: string;
+  hasCrossSiteAncestor: boolean;
+}
+
+export interface CdpCookie {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  expires: number;
+  size: number;
+  httpOnly: boolean;
+  secure: boolean;
+  session: boolean;
+  sameSite?: CookieSameSite;
+  priority?: 'Low' | 'Medium' | 'High';
+  sameParty?: boolean;
+  sourceScheme?: 'Unset' | 'NonSecure' | 'Secure';
+  sourcePort?: number;
+  partitionKey?: CookiePartitionKey;
+}
+
+export interface SetCookieParams {
+  name: string;
+  value: string;
+  url?: string;
+  domain?: string;
+  path?: string;
+  secure?: boolean;
+  httpOnly?: boolean;
+  sameSite?: CookieSameSite;
+  expires?: number;
+  partitionKey?: CookiePartitionKey;
+}
+
+export interface DeleteCookiesParams {
+  name: string;
+  url?: string;
+  domain?: string;
+  path?: string;
+  partitionKey?: CookiePartitionKey;
+}

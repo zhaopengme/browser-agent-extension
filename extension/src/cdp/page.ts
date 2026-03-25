@@ -9,7 +9,10 @@ import type {
   MouseEventParams,
   EvaluateResult,
   BoxModel,
-  NetworkRequest
+  NetworkRequest,
+  CdpCookie,
+  SetCookieParams,
+  DeleteCookiesParams,
 } from '@/types/cdp';
 
 // 网络请求存储
@@ -1572,5 +1575,37 @@ export class Page {
     `);
 
     await this.clickAt(elementInfo.x, elementInfo.y, { button: 'right' });
+  }
+
+  // ============================================================================
+  // Cookie 管理
+  // ============================================================================
+
+  async getCookies(urls?: string[]): Promise<CdpCookie[]> {
+    const result = await this.transport.send<{ cookies: CdpCookie[] }>(
+      'Network.getCookies',
+      urls?.length ? { urls } : {}
+    );
+    return result.cookies;
+  }
+
+  async setCookie(params: SetCookieParams): Promise<boolean> {
+    const payload: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(params)) {
+      if (v != null) payload[k] = v;
+    }
+    const result = await this.transport.send<{ success: boolean }>(
+      'Network.setCookie',
+      payload
+    );
+    return result.success;
+  }
+
+  async deleteCookies(params: DeleteCookiesParams): Promise<void> {
+    const payload: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(params)) {
+      if (v != null) payload[k] = v;
+    }
+    await this.transport.send('Network.deleteCookies', payload);
   }
 }
