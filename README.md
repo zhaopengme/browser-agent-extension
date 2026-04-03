@@ -86,6 +86,39 @@ After installation, tell me how to reload the MCP configuration.
 
 ---
 
+### 3. Build the CLI (optional)
+
+The CLI provides YAML-driven pipeline execution for web data extraction:
+
+```bash
+cd cli
+go build -o bin/bae .
+./bin/bae --help
+```
+
+**Commands:**
+
+```bash
+# Run an adapter pipeline
+./bin/bae run adapters/hackernews/top.yaml --limit 10 -o table
+
+# List available adapters
+./bin/bae list
+
+# Show adapter details
+./bin/bae show adapters/hackernews/top.yaml
+
+# Validate adapter syntax
+./bin/bae validate adapters/hackernews/top.yaml
+
+# Check extension connection
+./bin/bae doctor
+```
+
+**Output formats:** `--output table` (default), `--output json`, `--output csv`
+
+---
+
 ## Further Reading
 
 - [Architecture Design](docs/architecture.md)
