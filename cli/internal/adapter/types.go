@@ -21,12 +21,12 @@ type Arg struct {
 
 // Step is a single pipeline step. One key will be set.
 type Step struct {
-	Fetch       string         `yaml:"fetch,omitempty"`
-	Navigate    string         `yaml:"navigate,omitempty"`
+	Fetch       any            `yaml:"fetch,omitempty"`        // string (url) or map {url, params, method, headers}
+	Navigate    any            `yaml:"navigate,omitempty"`     // string (url) or map {url, settleMs, ...}
 	Click       any            `yaml:"click,omitempty"`        // string (selector) or map
 	Type        map[string]any `yaml:"type,omitempty"`
 	Wait        any            `yaml:"wait,omitempty"`         // string (selector), number (timeout), or map
-	Intercept   string         `yaml:"intercept,omitempty"`
+	Intercept   any            `yaml:"intercept,omitempty"`    // string (urlPattern) or map {pattern, collect, ...}
 	Download    any            `yaml:"download,omitempty"`     // string (url) or map
 	Map         map[string]any `yaml:"map,omitempty"`
 	Filter      any            `yaml:"filter,omitempty"`       // string expression
@@ -34,5 +34,5 @@ type Step struct {
 	Limit       any            `yaml:"limit,omitempty"`        // int or string expression
 	Select      any            `yaml:"select,omitempty"`       // []string or map
 	Evaluate    string         `yaml:"evaluate,omitempty"`
-	Tap         *bool          `yaml:"tap,omitempty"`          // true → print all, or map for custom
+	Tap         any            `yaml:"tap,omitempty"`          // true (print all) or map {store, action, ...}
 }

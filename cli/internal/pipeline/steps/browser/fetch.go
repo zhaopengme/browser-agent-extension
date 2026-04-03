@@ -20,9 +20,29 @@ var sharedHTTPClient = &http.Client{
 }
 
 // ExecFetch performs an HTTP request.
+// stepData contains: url (required), params (optional query params), method (optional), headers (optional).
 // For public strategy, uses Go net/http directly.
 // For cookie strategy, gets cookies from extension and applies them.
-func ExecFetch(urlStr string, strategy string, client *bridge.Client) ([]any, error) {
+func ExecFetch(stepData map[string]any, strategy string, client *bridge.Client) ([]any, error) {
+	urlStr, _ := stepData["url"].(string)
+	if urlStr == "" {
+		return nil, fmt.Errorf("fetch requires url")
+	}
+
+	// Build URL with query params if provided
+	if params, ok := stepData["params"].(map[string]any); ok && len(params) > 0 {
+		u, err := url.Parse(urlStr)
+		if err != nil {
+			return nil, fmt.Errorf("parse url: %w", err)
+		}
+		q := u.Query()
+		for k, v := range params {
+			q.Set(k, fmt.Sprintf("%v", v))
+		}
+		u.RawQuery = q.Encode()
+		urlStr = u.String()
+	}
+
 	var body []byte
 	var err error
 

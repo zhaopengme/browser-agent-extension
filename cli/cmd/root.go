@@ -9,7 +9,7 @@ import (
 
 const (
 	version      = "dev"
-	defaultWSURL = "ws://localhost:3026/ws"
+	defaultWSURL = "ws://localhost:3026/ws/cli"
 )
 
 var rootCmd = &cobra.Command{

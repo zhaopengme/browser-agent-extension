@@ -43,7 +43,13 @@ func ExecuteStep(ctx *PipelineContext, stepName string, stepData map[string]any,
 		} else {
 			url = urlRaw
 		}
-		return browser.ExecFetch(url, strategy, bridgeClient)
+		// Build full stepData with resolved URL
+		fetchData := make(map[string]any, len(stepData))
+		for k, v := range stepData {
+			fetchData[k] = v
+		}
+		fetchData["url"] = url
+		return browser.ExecFetch(fetchData, strategy, bridgeClient)
 	case "navigate":
 		if err := browser.ExecNavigate(stepData, bridgeClient); err != nil {
 			return nil, err
@@ -108,11 +114,23 @@ func RunPipeline(ctx *PipelineContext, cfg *adapter.AdapterConfig, bridgeClient 
 
 // stepToMap converts a Step struct to (name, data) pair.
 func stepToMap(step adapter.Step) (string, map[string]any, error) {
-	if step.Fetch != "" {
-		return "fetch", map[string]any{"url": step.Fetch}, nil
+	if step.Fetch != nil {
+		switch v := step.Fetch.(type) {
+		case string:
+			return "fetch", map[string]any{"url": v}, nil
+		case map[string]any:
+			return "fetch", v, nil
+		}
+		return "", nil, fmt.Errorf("fetch requires a string url or map params, got %T", step.Fetch)
 	}
-	if step.Navigate != "" {
-		return "navigate", map[string]any{"url": step.Navigate}, nil
+	if step.Navigate != nil {
+		switch v := step.Navigate.(type) {
+		case string:
+			return "navigate", map[string]any{"url": v}, nil
+		case map[string]any:
+			return "navigate", v, nil
+		}
+		return "", nil, fmt.Errorf("navigate requires a string url or map params, got %T", step.Navigate)
 	}
 	if step.Click != nil {
 		switch v := step.Click.(type) {
@@ -139,8 +157,23 @@ func stepToMap(step adapter.Step) (string, map[string]any, error) {
 		}
 		return "", nil, fmt.Errorf("wait requires a string selector, numeric timeout, or map params, got %T", step.Wait)
 	}
-	if step.Intercept != "" {
-		return "intercept", map[string]any{"urlPattern": step.Intercept}, nil
+	if step.Intercept != nil {
+		switch v := step.Intercept.(type) {
+		case string:
+			return "intercept", map[string]any{"urlPattern": v}, nil
+		case map[string]any:
+			// Support both "pattern" and "urlPattern" keys
+			params := make(map[string]any, len(v))
+			for k, val := range v {
+				if k == "pattern" {
+					params["urlPattern"] = val
+				} else {
+					params[k] = val
+				}
+			}
+			return "intercept", params, nil
+		}
+		return "", nil, fmt.Errorf("intercept requires a string urlPattern or map params, got %T", step.Intercept)
 	}
 	if step.Download != nil {
 		switch v := step.Download.(type) {
@@ -169,8 +202,16 @@ func stepToMap(step adapter.Step) (string, map[string]any, error) {
 	if step.Evaluate != "" {
 		return "evaluate", map[string]any{"expression": step.Evaluate}, nil
 	}
-	if step.Tap != nil && *step.Tap {
-		return "tap", map[string]any{}, nil
+	if step.Tap != nil {
+		switch v := step.Tap.(type) {
+		case bool:
+			if v {
+				return "tap", map[string]any{}, nil
+			}
+		case map[string]any:
+			return "tap", v, nil
+		}
+		return "", nil, fmt.Errorf("tap requires true or map params, got %T", step.Tap)
 	}
 
 	return "", nil, fmt.Errorf("step has no action")
