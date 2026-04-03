@@ -104,3 +104,89 @@ func TestResolveStringInterpolation(t *testing.T) {
 		t.Errorf("expected 'https://api.example.com/item/123.json', got %v", result)
 	}
 }
+
+func TestResolveUnknownIdentifier(t *testing.T) {
+	env := ExprEnv{
+		Item:  nil,
+		Index: 0,
+		Args:  map[string]any{},
+		Vars:  map[string]any{},
+	}
+
+	_, err := Resolve("${{ itme.title }}", env)
+	if err == nil {
+		t.Fatal("expected error for unknown identifier")
+	}
+}
+
+func TestResolveInvalidSyntax(t *testing.T) {
+	env := ExprEnv{
+		Item:  nil,
+		Index: 0,
+		Args:  map[string]any{},
+		Vars:  map[string]any{},
+	}
+
+	_, err := Resolve("${{ args. }}", env)
+	if err == nil {
+		t.Fatal("expected error for invalid expression syntax")
+	}
+}
+
+func TestResolveAdjacentTemplates(t *testing.T) {
+	env := ExprEnv{
+		Item:  map[string]any{"a": 1, "b": 2},
+		Index: 0,
+		Args:  map[string]any{},
+		Vars:  map[string]any{},
+	}
+
+	result, err := Resolve("${{ item.a }}-${{ item.b }}", env)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "1-2" {
+		t.Errorf("expected '1-2', got %v", result)
+	}
+}
+
+func TestResolveVarsAndIndex(t *testing.T) {
+	env := ExprEnv{
+		Item:  nil,
+		Index: 5,
+		Args:  map[string]any{},
+		Vars:  map[string]any{"multiplier": 3},
+	}
+
+	result, err := Resolve("${{ index * vars.multiplier }}", env)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Accept int or float
+	switch v := result.(type) {
+	case int:
+		if v != 15 {
+			t.Errorf("expected 15, got %v", result)
+		}
+	case float64:
+		if v != 15 {
+			t.Errorf("expected 15, got %v", result)
+		}
+	default:
+		t.Errorf("expected int or float64, got %T", result)
+	}
+}
+
+func TestResolveErrorInInterpolation(t *testing.T) {
+	env := ExprEnv{
+		Item:  nil,
+		Index: 0,
+		Args:  map[string]any{},
+		Vars:  map[string]any{},
+	}
+
+	_, err := Resolve("prefix${{ bad. }}suffix", env)
+	if err == nil {
+		t.Fatal("expected error to propagate from interpolation")
+	}
+}

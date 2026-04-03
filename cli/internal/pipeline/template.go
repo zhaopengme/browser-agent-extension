@@ -62,6 +62,9 @@ var templateRe = regexp.MustCompile(`\$\{\{(.+?)\}\}`)
 
 // Resolve evaluates a ${{ }} expression and returns the result.
 // If the input contains no template markers, it is returned as-is.
+// If the entire input is a single ${{ }} expression, the raw typed result is returned.
+// Otherwise, string interpolation is performed and a string is returned.
+// Resolution fails fast on the first expression error.
 func Resolve(input string, env ExprEnv) (any, error) {
 	if !strings.Contains(input, "${{") {
 		return input, nil
@@ -73,17 +76,35 @@ func Resolve(input string, env ExprEnv) (any, error) {
 		return evalExpr(strings.TrimSpace(matches[0][1]), env)
 	}
 
-	// Otherwise, do string replacement
+	// Otherwise, do string replacement (fail fast on first error)
+	var lastErr error
 	result := templateRe.ReplaceAllStringFunc(input, func(match string) string {
-		exprStr := strings.TrimSpace(match[3 : len(match)-3])
+		if lastErr != nil {
+			return match // skip remaining after error
+		}
+		exprStr := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(match, "${{"), "}}"))
 		val, err := evalExpr(exprStr, env)
 		if err != nil {
+			lastErr = err
 			return match
 		}
 		return fmt.Sprintf("%v", val)
 	})
 
+	if lastErr != nil {
+		return nil, lastErr
+	}
+
 	return result, nil
+}
+
+// knownIdentifiers is the set of top-level variables available in expressions.
+var knownIdentifiers = map[string]bool{
+	"item":  true,
+	"index": true,
+	"args":  true,
+	"vars":  true,
+	"Math":  true,
 }
 
 func evalExpr(expression string, env ExprEnv) (any, error) {
@@ -96,9 +117,14 @@ func evalExpr(expression string, env ExprEnv) (any, error) {
 		"Math":  MathFuncs,
 	}
 
-	program, err := expr.Compile(expression, expr.Env(fullEnv), expr.AllowUndefinedVariables())
+	program, err := expr.Compile(expression, expr.Env(fullEnv))
 	if err != nil {
-		return nil, fmt.Errorf("compile expr %q: %w", expression, err)
+		// Provide a hint for unknown identifier errors
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "unknown name") {
+			errMsg += fmt.Sprintf(" (known: item, index, args, vars, Math)")
+		}
+		return nil, fmt.Errorf("compile expr %q: %s", expression, errMsg)
 	}
 
 	result, err := expr.Run(program, fullEnv)
