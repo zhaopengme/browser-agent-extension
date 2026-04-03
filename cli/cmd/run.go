@@ -6,10 +6,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/mobai/browser-agent-cli/internal/adapter"
-	"github.com/mobai/browser-agent-cli/internal/bridge"
-	"github.com/mobai/browser-agent-cli/internal/output"
-	"github.com/mobai/browser-agent-cli/internal/pipeline"
+	"github.com/agents-cc/browser-agent-extension/cli/internal/adapter"
+	"github.com/agents-cc/browser-agent-extension/cli/internal/bridge"
+	"github.com/agents-cc/browser-agent-extension/cli/internal/output"
+	"github.com/agents-cc/browser-agent-extension/cli/internal/pipeline"
 )
 
 var (
@@ -40,12 +40,7 @@ var runCmd = &cobra.Command{
 			return fmt.Errorf("pipeline: %w", err)
 		}
 
-		// Convert []map[string]any to []any for output.Render
-		generic := make([]any, len(items))
-		for i, m := range items {
-			generic[i] = m
-		}
-		return output.Render(generic, cfg.Columns, outputFormat)
+		return output.Render(items, cfg.Columns, outputFormat)
 	},
 }
 

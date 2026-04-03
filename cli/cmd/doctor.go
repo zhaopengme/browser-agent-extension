@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/mobai/browser-agent-cli/internal/bridge"
+	"github.com/agents-cc/browser-agent-extension/cli/internal/bridge"
 )
 
 var doctorCmd = &cobra.Command{

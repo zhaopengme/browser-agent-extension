@@ -1,6 +1,6 @@
 package main
 
-import "github.com/mobai/browser-agent-cli/cmd"
+import "github.com/agents-cc/browser-agent-extension/cli/cmd"
 
 func main() {
 	cmd.Execute()

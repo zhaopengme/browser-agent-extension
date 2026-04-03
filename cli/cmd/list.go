@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/mobai/browser-agent-cli/internal/adapter"
+	"github.com/agents-cc/browser-agent-extension/cli/internal/adapter"
 )
 
 var listCmd = &cobra.Command{
