@@ -21,15 +21,16 @@ func Parse(path string) (*AdapterConfig, error) {
 		return nil, fmt.Errorf("parse yaml: %w", err)
 	}
 
-	if err := Validate(&cfg); err != nil {
+	if err := ValidateAndApplyDefaults(&cfg); err != nil {
 		return nil, err
 	}
 
 	return &cfg, nil
 }
 
-// Validate checks required fields and valid values.
-func Validate(cfg *AdapterConfig) error {
+// ValidateAndApplyDefaults checks required fields and applies default values.
+// NOTE: This function mutates cfg (e.g., sets Strategy to "public" if empty).
+func ValidateAndApplyDefaults(cfg *AdapterConfig) error {
 	if cfg.Site == "" {
 		return fmt.Errorf("missing required field: site")
 	}
@@ -46,6 +47,32 @@ func Validate(cfg *AdapterConfig) error {
 	}
 
 	// Validate strategy
+	validStrategies := map[string]bool{
+		"public": true, "cookie": true, "header": true, "intercept": true, "ui": true,
+	}
+	if !validStrategies[cfg.Strategy] {
+		return fmt.Errorf("invalid strategy: %s", cfg.Strategy)
+	}
+
+	return nil
+}
+
+// Validate checks required fields and valid values (does not mutate cfg).
+func Validate(cfg *AdapterConfig) error {
+	if cfg.Site == "" {
+		return fmt.Errorf("missing required field: site")
+	}
+	if cfg.Name == "" {
+		return fmt.Errorf("missing required field: name")
+	}
+	if len(cfg.Pipeline) == 0 {
+		return fmt.Errorf("pipeline must have at least one step")
+	}
+
+	// Validate strategy (without applying defaults)
+	if cfg.Strategy == "" {
+		return nil // absent strategy is valid for dry-run validation
+	}
 	validStrategies := map[string]bool{
 		"public": true, "cookie": true, "header": true, "intercept": true, "ui": true,
 	}
