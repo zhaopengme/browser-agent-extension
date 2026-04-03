@@ -1,8 +1,10 @@
 package pipeline
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -61,16 +63,39 @@ var MathFuncs = map[string]any{
 
 var templateRe = regexp.MustCompile(`\$\{\{(.+?)\}\}`)
 
-// exprEnv builds the expr environment map.
-func exprEnv(env ExprEnv) map[string]any {
+// baseFuncEnv returns the common functions available in all expression environments.
+func baseFuncEnv() map[string]any {
 	return map[string]any{
-		"item":    env.Item,
-		"index":   env.Index,
-		"args":    env.Args,
-		"vars":    env.Vars,
-		"Math":    MathFuncs,
-		"truthy":  isTruthyFn,
+		"Math":      MathFuncs,
+		"truthy":    isTruthyFn,
+		"urlencode": urlQueryFn,
+		"json":      jsonFn,
 	}
+}
+
+// exprEnv builds the expr environment map from pipeline context.
+func exprEnv(env ExprEnv) map[string]any {
+	m := baseFuncEnv()
+	m["item"] = env.Item
+	m["index"] = env.Index
+	m["args"] = env.Args
+	m["vars"] = env.Vars
+	return m
+}
+
+// urlQueryFn URL-encodes a string value.
+func urlQueryFn(v any) string {
+	s := fmt.Sprintf("%v", v)
+	return url.QueryEscape(s)
+}
+
+// jsonFn serializes a value to a JSON string (for embedding in JS).
+func jsonFn(v any) (string, error) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
 
 // isTruthyFn is a truthy helper callable from expr expressions.
@@ -90,6 +115,42 @@ func isTruthyFn(v any) bool {
 	}
 }
 
+// pipeFuncs maps pipe names to their function implementations.
+var pipeFuncs = map[string]string{
+	"urlencode": "urlencode",
+	"json":      "json",
+}
+
+
+// convertPipes converts Jinja2-style pipes to function calls: "x | urlencode" → "urlencode(x)"
+func convertPipes(exprStr string) string {
+	for name := range pipeFuncs {
+		// Try with spaces: " | urlencode"
+		pattern := " | " + name
+		for strings.Contains(exprStr, pattern) {
+			idx := strings.Index(exprStr, pattern)
+			preceding := strings.TrimSpace(exprStr[:idx])
+			rest := strings.TrimSpace(exprStr[idx+len(pattern):])
+			exprStr = name + "(" + preceding + ")"
+			if rest != "" {
+				exprStr += " " + rest
+			}
+		}
+		// Try without spaces: "|urlencode"
+		pattern2 := "|" + name
+		for strings.Contains(exprStr, pattern2) {
+			idx := strings.Index(exprStr, pattern2)
+			preceding := strings.TrimSpace(exprStr[:idx])
+			rest := strings.TrimSpace(exprStr[idx+len(pattern2):])
+			exprStr = name + "(" + preceding + ")"
+			if rest != "" {
+				exprStr += " " + rest
+			}
+		}
+	}
+	return exprStr
+}
+
 // compileExpr compiles an expression for repeated execution.
 func compileExpr(input string) (*vm.Program, error) {
 	exprStr := input
@@ -97,14 +158,15 @@ func compileExpr(input string) (*vm.Program, error) {
 		exprStr = strings.TrimSpace(input[3 : len(input)-2])
 	}
 
+	// Convert Jinja2-style pipes to function calls
+	exprStr = convertPipes(exprStr)
+
 	// Use placeholder values at compile time so field access works
-	fullEnv := map[string]any{
-		"item":  make(map[string]any),
-		"index": 0,
-		"args":  make(map[string]any),
-		"vars":  make(map[string]any),
-		"Math":  MathFuncs,
-	}
+	fullEnv := baseFuncEnv()
+	fullEnv["item"] = make(map[string]any)
+	fullEnv["index"] = 0
+	fullEnv["args"] = make(map[string]any)
+	fullEnv["vars"] = make(map[string]any)
 	program, err := expr.Compile(exprStr, expr.Env(fullEnv), expr.AllowUndefinedVariables())
 	if err != nil {
 		errMsg := err.Error()
@@ -182,9 +244,12 @@ func formatForString(v any) string {
 }
 
 func evalExpr(expression string, env ExprEnv) (any, error) {
+	// Convert Jinja2-style pipes to function calls before compiling
+	exprStr := convertPipes(expression)
+
 	fullEnv := exprEnv(env)
 
-	program, err := expr.Compile(expression, expr.Env(fullEnv))
+	program, err := expr.Compile(exprStr, expr.Env(fullEnv))
 	if err != nil {
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "unknown name") {

@@ -146,3 +146,75 @@ export const wsHandler = upgradeWebSocket((c: Context) => {
     },
   };
 });
+
+/**
+ * CLI WebSocket handler — allows the `bae` CLI to send requests to the extension.
+ * 
+ * Protocol:
+ *   Client → Server: { type: "REQUEST", id: "req_xxx", action: "get_tabs", params: {...} }
+ *   Server → Client: { type: "RESPONSE", id: "req_xxx", payload: { success: true, data: {...} } }
+ */
+export const cliWsHandler = upgradeWebSocket((c: Context) => {
+  return {
+    onOpen: () => {
+      logger.info('CLI-WS', 'CLI client connected');
+    },
+
+    onMessage: async (event: MessageEvent, ws: WSContext) => {
+      try {
+        const msg = JSON.parse(event.data as string) as {
+          type: string;
+          id: string;
+          action: string;
+          params?: Record<string, unknown>;
+        };
+
+        if (msg.type !== 'REQUEST') {
+          logger.warn('CLI-WS', `Unexpected message type from CLI: ${msg.type}`);
+          return;
+        }
+
+        if (!msg.action) {
+          ws.send(JSON.stringify({
+            type: 'RESPONSE',
+            id: msg.id,
+            payload: { success: false, error: 'Missing action' },
+          }));
+          return;
+        }
+
+        logger.info('CLI-WS', `CLI request: ${msg.action} (id=${msg.id})`);
+
+        try {
+          const result = await bridgeStore.sendRequest(
+            { action: msg.action, params: msg.params || {} },
+            30000 // 30s default timeout for CLI requests
+          );
+
+          ws.send(JSON.stringify({
+            type: 'RESPONSE',
+            id: msg.id,
+            payload: { success: true, data: result },
+          }));
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          ws.send(JSON.stringify({
+            type: 'RESPONSE',
+            id: msg.id,
+            payload: { success: false, error: errorMsg },
+          }));
+        }
+      } catch (error) {
+        logger.error('CLI-WS', 'Failed to parse CLI message', error);
+      }
+    },
+
+    onClose: () => {
+      logger.info('CLI-WS', 'CLI client disconnected');
+    },
+
+    onError: (event: Event) => {
+      logger.error('CLI-WS', 'CLI WebSocket error', event);
+    },
+  };
+});

@@ -25,7 +25,7 @@ func ExecuteStep(ctx *PipelineContext, stepName string, stepData map[string]any,
 	case "tap":
 		return ExecTap(ctx, stepData)
 	case "evaluate":
-		return ExecEvaluate(ctx, stepData)
+		return ExecEvaluate(ctx, stepData, bridgeClient)
 	case "fetch":
 		urlRaw, _ := stepData["url"].(string)
 		if urlRaw == "" {
@@ -51,7 +51,27 @@ func ExecuteStep(ctx *PipelineContext, stepName string, stepData map[string]any,
 		fetchData["url"] = url
 		return browser.ExecFetch(fetchData, strategy, bridgeClient)
 	case "navigate":
-		if err := browser.ExecNavigate(stepData, bridgeClient); err != nil {
+		urlRaw, _ := stepData["url"].(string)
+		if urlRaw == "" {
+			return nil, fmt.Errorf("navigate requires url")
+		}
+		var navURL string
+		if strings.Contains(urlRaw, "${{") {
+			env := ctx.ExprEnv(0)
+			resolved, err := Resolve(urlRaw, env)
+			if err != nil {
+				return nil, fmt.Errorf("resolve navigate url: %w", err)
+			}
+			navURL = formatValue(resolved)
+		} else {
+			navURL = urlRaw
+		}
+		navData := make(map[string]any, len(stepData))
+		for k, v := range stepData {
+			navData[k] = v
+		}
+		navData["url"] = navURL
+		if err := browser.ExecNavigate(navData, bridgeClient); err != nil {
 			return nil, err
 		}
 		return ctx.Items, nil

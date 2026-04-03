@@ -7,13 +7,14 @@
  * Provides:
  * - /mcp - MCP Streamable HTTP endpoint
  * - /ws - WebSocket endpoint for browser extension
+ * - /ws/cli - WebSocket endpoint for bae CLI
  * - /health - Health check endpoint
  */
 
 import { Hono } from 'hono';
 import { websocket } from 'hono/bun';
 import { mcpHandler, mcpServer } from './mcp/handler.js';
-import { wsHandler } from './ws/handler.js';
+import { wsHandler, cliWsHandler } from './ws/handler.js';
 import { bridgeStore } from './bridge/store.js';
 import { logger } from './utils/logger.js';
 
@@ -33,6 +34,9 @@ app.all('/mcp', mcpHandler);
 // WebSocket endpoint for browser extension
 app.get('/ws', wsHandler);
 
+// WebSocket endpoint for bae CLI
+app.get('/ws/cli', cliWsHandler);
+
 // Health check
 app.get('/health', (c) => {
   const state = bridgeStore.getState();
@@ -49,6 +53,7 @@ const PORT = parseInt(process.env.PORT || '3026');
 logger.info('Server', `Starting Browser Agent MCP Server on port ${PORT}`);
 logger.info('Server', `MCP endpoint: http://localhost:${PORT}/mcp`);
 logger.info('Server', `WebSocket endpoint: ws://localhost:${PORT}/ws`);
+logger.info('Server', `CLI WebSocket endpoint: ws://localhost:${PORT}/ws/cli`);
 logger.info('Server', `Health check: http://localhost:${PORT}/health`);
 
 // Graceful shutdown handling

@@ -22,9 +22,13 @@ pipeline:
   - evaluate: |
       (async () => {
         try {
+          console.log('sleeping 3000ms');
+          await new Promise(r => setTimeout(r, 3000));
           const textToInsert = ${{ args.text | json }};
+          console.log(textToInsert);
           const box = document.querySelector('[data-testid="tweetTextarea_0"]');
           if (box) {
+            console.log(box);
             box.focus();
             const dataTransfer = new DataTransfer();
             dataTransfer.setData('text/plain', textToInsert);
