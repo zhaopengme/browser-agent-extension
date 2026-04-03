@@ -83,21 +83,27 @@ func Validate(cfg *AdapterConfig) error {
 	return nil
 }
 
-// Discover searches for *.yaml files in adapters/ (cwd) and ~/.bae/adapters/.
+// Discover searches for *.yaml files in adapters/ (cwd and parent) and ~/.bae/adapters/.
 func Discover() ([]string, error) {
 	var found []string
 
 	// Search cwd/adapters/
-	localDir := filepath.Join(".", "adapters")
-	if files, err := yamlFiles(localDir); err == nil {
+	if files, err := yamlFiles(filepath.Join(".", "adapters")); err == nil {
 		found = append(found, files...)
+	}
+
+	// Search ../adapters/ (project root, for when running from cli/)
+	if files, err := yamlFiles(filepath.Join("..", "adapters")); err == nil {
+		for _, f := range files {
+			abs, _ := filepath.Abs(f)
+			found = append(found, abs)
+		}
 	}
 
 	// Search ~/.bae/adapters/
 	home, err := os.UserHomeDir()
 	if err == nil {
-		globalDir := filepath.Join(home, ".bae", "adapters")
-		if files, err := yamlFiles(globalDir); err == nil {
+		if files, err := yamlFiles(filepath.Join(home, ".bae", "adapters")); err == nil {
 			found = append(found, files...)
 		}
 	}
@@ -106,15 +112,18 @@ func Discover() ([]string, error) {
 }
 
 func yamlFiles(dir string) ([]string, error) {
-	entries, err := os.ReadDir(dir)
+	var files []string
+	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(d.Name(), ".yaml") {
+			files = append(files, path)
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
-	}
-	var files []string
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".yaml") {
-			files = append(files, filepath.Join(dir, e.Name()))
-		}
 	}
 	return files, nil
 }
