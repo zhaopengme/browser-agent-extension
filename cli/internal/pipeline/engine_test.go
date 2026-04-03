@@ -13,7 +13,7 @@ func TestEngineLimitStep(t *testing.T) {
 	}
 
 	step := map[string]any{"expr": 2}
-	items, err := ExecuteStep(ctx, "limit", step)
+	items, err := ExecuteStep(ctx, "limit", step, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -31,7 +31,7 @@ func TestEngineFilterStep(t *testing.T) {
 	}
 
 	step := map[string]any{"expr": "item.score > 100"}
-	items, err := ExecuteStep(ctx, "filter", step)
+	items, err := ExecuteStep(ctx, "filter", step, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestEngineMapStep(t *testing.T) {
 	}
 
 	step := map[string]any{"label": "${{ item.name }}"}
-	items, err := ExecuteStep(ctx, "map", step)
+	items, err := ExecuteStep(ctx, "map", step, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestEngineSelectStep(t *testing.T) {
 	}
 
 	step := map[string]any{"fields": []string{"a", "c"}}
-	items, err := ExecuteStep(ctx, "select", step)
+	items, err := ExecuteStep(ctx, "select", step, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestEngineTapStep(t *testing.T) {
 	ctx.Items = []any{map[string]any{"x": 1}}
 
 	step := map[string]any{}
-	items, err := ExecuteStep(ctx, "tap", step)
+	items, err := ExecuteStep(ctx, "tap", step, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestEngineTapStep(t *testing.T) {
 
 func TestEngineBrowserStepError(t *testing.T) {
 	ctx := NewContext(map[string]any{})
-	_, err := ExecuteStep(ctx, "navigate", map[string]any{"url": "x"})
+	_, err := ExecuteStep(ctx, "navigate", map[string]any{"url": "x"}, nil)
 	if err == nil {
 		t.Fatal("expected error for browser step without bridge")
 	}
@@ -108,7 +108,7 @@ func TestEngineBrowserStepError(t *testing.T) {
 
 func TestEngineUnknownStep(t *testing.T) {
 	ctx := NewContext(map[string]any{})
-	_, err := ExecuteStep(ctx, "foobar", map[string]any{})
+	_, err := ExecuteStep(ctx, "foobar", map[string]any{}, nil)
 	if err == nil {
 		t.Fatal("expected error for unknown step type")
 	}

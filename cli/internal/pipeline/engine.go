@@ -4,10 +4,12 @@ import (
 	"fmt"
 
 	"github.com/agents-cc/browser-agent-extension/cli/internal/adapter"
+	"github.com/agents-cc/browser-agent-extension/cli/internal/bridge"
+	"github.com/agents-cc/browser-agent-extension/cli/internal/pipeline/steps/browser"
 )
 
 // ExecuteStep dispatches a step to the appropriate handler.
-func ExecuteStep(ctx *PipelineContext, stepName string, stepData map[string]any) ([]any, error) {
+func ExecuteStep(ctx *PipelineContext, stepName string, stepData map[string]any, bridgeClient *bridge.Client) ([]any, error) {
 	switch stepName {
 	case "limit":
 		return ExecLimit(ctx, stepData)
@@ -23,15 +25,47 @@ func ExecuteStep(ctx *PipelineContext, stepName string, stepData map[string]any)
 		return ExecTap(ctx, stepData)
 	case "evaluate":
 		return ExecEvaluate(ctx, stepData)
-	case "fetch", "navigate", "click", "type", "wait", "intercept", "download":
-		return nil, fmt.Errorf("browser step %q requires bridge (not yet wired)", stepName)
+	case "fetch":
+		url, _ := stepData["url"].(string)
+		items, err := browser.ExecFetch(url, "public", bridgeClient)
+		return items, err
+	case "navigate":
+		if err := browser.ExecNavigate(stepData, bridgeClient); err != nil {
+			return nil, err
+		}
+		return ctx.Items, nil
+	case "click":
+		if err := browser.ExecClick(stepData, bridgeClient); err != nil {
+			return nil, err
+		}
+		return ctx.Items, nil
+	case "type":
+		if err := browser.ExecType(stepData, bridgeClient); err != nil {
+			return nil, err
+		}
+		return ctx.Items, nil
+	case "wait":
+		if err := browser.ExecWait(stepData, bridgeClient); err != nil {
+			return nil, err
+		}
+		return ctx.Items, nil
+	case "intercept":
+		if err := browser.ExecIntercept(stepData, bridgeClient); err != nil {
+			return nil, err
+		}
+		return ctx.Items, nil
+	case "download":
+		if err := browser.ExecDownload(stepData, bridgeClient); err != nil {
+			return nil, err
+		}
+		return ctx.Items, nil
 	default:
 		return nil, fmt.Errorf("unknown step type: %s", stepName)
 	}
 }
 
 // RunPipeline executes a full pipeline from a parsed config.
-func RunPipeline(ctx *PipelineContext, cfg *adapter.AdapterConfig) ([]any, error) {
+func RunPipeline(ctx *PipelineContext, cfg *adapter.AdapterConfig, bridgeClient *bridge.Client) ([]any, error) {
 	var items []any
 
 	for i, step := range cfg.Pipeline {
@@ -40,7 +74,7 @@ func RunPipeline(ctx *PipelineContext, cfg *adapter.AdapterConfig) ([]any, error
 			return nil, fmt.Errorf("step %d: %w", i, err)
 		}
 
-		result, err := ExecuteStep(ctx, stepName, stepData)
+		result, err := ExecuteStep(ctx, stepName, stepData, bridgeClient)
 		if err != nil {
 			return nil, fmt.Errorf("step %d (%s): %w", i, stepName, err)
 		}
