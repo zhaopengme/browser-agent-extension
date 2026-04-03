@@ -27,19 +27,34 @@ var runCmd = &cobra.Command{
 			return fmt.Errorf("parse adapter: %w", err)
 		}
 
-		wsURL := "ws://localhost:3026/ws"
-		client := bridge.NewClient(wsURL, stepTimeout)
-		if err := client.Connect(); err != nil {
-			return fmt.Errorf("connect to extension: %w\nHint: make sure the Chrome extension is running", err)
+		// Populate context args from adapter defaults
+		ctxArgs := make(map[string]any)
+		for name, arg := range cfg.Args {
+			ctxArgs[name] = arg.Default
 		}
-		defer client.Close()
 
-		ctx := pipeline.NewContext(make(map[string]any))
-		items, err := pipeline.RunPipeline(ctx, cfg, client)
+		// Skip WebSocket connection for public-only adapters
+		if cfg.Browser || cfg.Strategy != "public" {
+			client := bridge.NewClient(defaultWSURL, stepTimeout)
+			if err := client.Connect(); err != nil {
+				return fmt.Errorf("connect to extension: %w\nHint: make sure the Chrome extension is running", err)
+			}
+			defer client.Close()
+
+			ctx := pipeline.NewContext(ctxArgs)
+			items, err := pipeline.RunPipeline(ctx, cfg, client)
+			if err != nil {
+				return fmt.Errorf("pipeline: %w", err)
+			}
+			return output.Render(items, cfg.Columns, outputFormat)
+		}
+
+		// Public-only: no extension needed
+		ctx := pipeline.NewContext(ctxArgs)
+		items, err := pipeline.RunPipeline(ctx, cfg, nil)
 		if err != nil {
 			return fmt.Errorf("pipeline: %w", err)
 		}
-
 		return output.Render(items, cfg.Columns, outputFormat)
 	},
 }

@@ -3,6 +3,7 @@ package output
 import (
 	"fmt"
 	"os"
+	"sort"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
@@ -21,6 +22,7 @@ func Table(items []any, columns []string) error {
 			for k := range m {
 				columns = append(columns, k)
 			}
+			sort.Strings(columns)
 		}
 	}
 

@@ -15,7 +15,7 @@ var doctorCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Println("Checking extension connection...")
 
-		client := bridge.NewClient("ws://localhost:3026/ws", 5*time.Second)
+		client := bridge.NewClient(defaultWSURL, 5*time.Second)
 		if err := client.Connect(); err != nil {
 			fmt.Println("✗ Cannot connect to extension")
 			fmt.Println("  Make sure:")
@@ -34,7 +34,7 @@ var doctorCmd = &cobra.Command{
 
 		fmt.Println("✓ Connected to extension")
 		if payload.Success {
-			fmt.Printf("✓ get_tabs OK (data: %v)\n", payload.Data)
+			fmt.Printf("✓ get_tabs OK\n")
 		}
 
 		return nil

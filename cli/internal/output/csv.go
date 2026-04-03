@@ -4,6 +4,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"os"
+	"sort"
 )
 
 // CSV prints items as CSV.
@@ -18,11 +19,11 @@ func CSV(items []any, columns []string) error {
 			for k := range m {
 				columns = append(columns, k)
 			}
+			sort.Strings(columns)
 		}
 	}
 
 	w := csv.NewWriter(os.Stdout)
-	defer w.Flush()
 
 	// Header
 	if err := w.Write(columns); err != nil {
@@ -33,7 +34,9 @@ func CSV(items []any, columns []string) error {
 	for _, item := range items {
 		m, ok := item.(map[string]any)
 		if !ok {
-			w.Write([]string{fmt.Sprintf("%v", item)})
+			if err := w.Write([]string{fmt.Sprintf("%v", item)}); err != nil {
+				return fmt.Errorf("write csv row: %w", err)
+			}
 			continue
 		}
 		var row []string
@@ -43,6 +46,11 @@ func CSV(items []any, columns []string) error {
 		if err := w.Write(row); err != nil {
 			return fmt.Errorf("write csv row: %w", err)
 		}
+	}
+
+	w.Flush()
+	if err := w.Error(); err != nil {
+		return fmt.Errorf("flush csv: %w", err)
 	}
 
 	return nil

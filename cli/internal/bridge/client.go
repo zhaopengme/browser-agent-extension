@@ -38,6 +38,8 @@ type Client struct {
 	conn    *websocket.Conn
 	mu      sync.Mutex
 	pending map[string]chan BridgeResponse
+	done    chan struct{}
+	closed  bool
 }
 
 // NewClient creates a new bridge client.
@@ -46,6 +48,7 @@ func NewClient(url string, timeout time.Duration) *Client {
 		url:     url,
 		timeout: timeout,
 		pending: make(map[string]chan BridgeResponse),
+		done:    make(chan struct{}),
 	}
 }
 
@@ -63,10 +66,20 @@ func (c *Client) Connect() error {
 	return nil
 }
 
-// Close closes the WebSocket connection.
+// Close closes the WebSocket connection and stops the read loop.
 func (c *Client) Close() error {
-	if c.conn != nil {
-		return c.conn.Close()
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return nil
+	}
+	c.closed = true
+	close(c.done)
+	conn := c.conn
+	c.mu.Unlock()
+
+	if conn != nil {
+		return conn.Close()
 	}
 	return nil
 }
@@ -78,6 +91,10 @@ func (c *Client) Send(action string, params map[string]any) (*BridgePayload, err
 	// Create response channel
 	respCh := make(chan BridgeResponse, 1)
 	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return nil, fmt.Errorf("client is closed")
+	}
 	c.pending[id] = respCh
 	c.mu.Unlock()
 
@@ -89,15 +106,26 @@ func (c *Client) Send(action string, params map[string]any) (*BridgePayload, err
 		Params: params,
 	}
 
-	if err := c.conn.WriteJSON(req); err != nil {
+	c.mu.Lock()
+	conn := c.conn
+	c.mu.Unlock()
+
+	if conn == nil {
+		return nil, fmt.Errorf("not connected")
+	}
+
+	if err := conn.WriteJSON(req); err != nil {
 		return nil, fmt.Errorf("send request: %w", err)
 	}
 
 	// Wait for response
+	timer := time.NewTimer(c.timeout)
+	defer timer.Stop()
+
 	select {
 	case resp := <-respCh:
 		return &resp.Payload, nil
-	case <-time.After(c.timeout):
+	case <-timer.C:
 		c.mu.Lock()
 		delete(c.pending, id)
 		c.mu.Unlock()
@@ -108,15 +136,32 @@ func (c *Client) Send(action string, params map[string]any) (*BridgePayload, err
 // readLoop reads messages from the WebSocket connection.
 func (c *Client) readLoop() {
 	for {
+		select {
+		case <-c.done:
+			// Signal received — drain pending with error
+			c.mu.Lock()
+			for id, ch := range c.pending {
+				select {
+				case ch <- BridgeResponse{Payload: BridgePayload{Success: false, Error: "client closed"}}:
+				default:
+				}
+				delete(c.pending, id)
+			}
+			c.mu.Unlock()
+			return
+		default:
+		}
+
 		_, msg, err := c.conn.ReadMessage()
 		if err != nil {
 			// Connection closed — drain pending
 			c.mu.Lock()
-			for _, ch := range c.pending {
+			for id, ch := range c.pending {
 				select {
 				case ch <- BridgeResponse{Payload: BridgePayload{Success: false, Error: "connection closed"}}:
 				default:
 				}
+				delete(c.pending, id)
 			}
 			c.mu.Unlock()
 			return

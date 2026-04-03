@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/expr-lang/expr"
+	"github.com/expr-lang/expr/vm"
 )
 
 // ExprEnv is the expression evaluation environment.
@@ -60,6 +61,53 @@ var MathFuncs = map[string]any{
 
 var templateRe = regexp.MustCompile(`\$\{\{(.+?)\}\}`)
 
+// exprEnv builds the expr environment map.
+func exprEnv(env ExprEnv) map[string]any {
+	return map[string]any{
+		"item":  env.Item,
+		"index": env.Index,
+		"args":  env.Args,
+		"vars":  env.Vars,
+		"Math":  MathFuncs,
+	}
+}
+
+// compileExpr compiles an expression for repeated execution.
+func compileExpr(input string) (*vm.Program, error) {
+	exprStr := input
+	if strings.HasPrefix(input, "${{") && strings.HasSuffix(input, "}}") {
+		exprStr = strings.TrimSpace(input[3 : len(input)-2])
+	}
+
+	// Use placeholder values at compile time so field access works
+	fullEnv := map[string]any{
+		"item":  make(map[string]any),
+		"index": 0,
+		"args":  make(map[string]any),
+		"vars":  make(map[string]any),
+		"Math":  MathFuncs,
+	}
+	program, err := expr.Compile(exprStr, expr.Env(fullEnv), expr.AllowUndefinedVariables())
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "unknown name") {
+			errMsg += " (known: item, index, args, vars, Math)"
+		}
+		return nil, fmt.Errorf("compile expr %q: %s", input, errMsg)
+	}
+	return program, nil
+}
+
+// runExpr runs a pre-compiled program with the given environment.
+func runExpr(program *vm.Program, env ExprEnv) (any, error) {
+	fullEnv := exprEnv(env)
+	result, err := expr.Run(program, fullEnv)
+	if err != nil {
+		return nil, fmt.Errorf("eval expr: %w", err)
+	}
+	return result, nil
+}
+
 // Resolve evaluates a ${{ }} expression and returns the result.
 // If the input contains no template markers, it is returned as-is.
 // If the entire input is a single ${{ }} expression, the raw typed result is returned.
@@ -98,31 +146,14 @@ func Resolve(input string, env ExprEnv) (any, error) {
 	return result, nil
 }
 
-// knownIdentifiers is the set of top-level variables available in expressions.
-var knownIdentifiers = map[string]bool{
-	"item":  true,
-	"index": true,
-	"args":  true,
-	"vars":  true,
-	"Math":  true,
-}
-
 func evalExpr(expression string, env ExprEnv) (any, error) {
-	// Build the environment with Math functions
-	fullEnv := map[string]any{
-		"item":  env.Item,
-		"index": env.Index,
-		"args":  env.Args,
-		"vars":  env.Vars,
-		"Math":  MathFuncs,
-	}
+	fullEnv := exprEnv(env)
 
 	program, err := expr.Compile(expression, expr.Env(fullEnv))
 	if err != nil {
-		// Provide a hint for unknown identifier errors
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "unknown name") {
-			errMsg += fmt.Sprintf(" (known: item, index, args, vars, Math)")
+			errMsg += " (known: item, index, args, vars, Math)"
 		}
 		return nil, fmt.Errorf("compile expr %q: %s", expression, errMsg)
 	}

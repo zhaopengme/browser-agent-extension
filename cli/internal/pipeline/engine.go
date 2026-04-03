@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/agents-cc/browser-agent-extension/cli/internal/adapter"
 	"github.com/agents-cc/browser-agent-extension/cli/internal/bridge"
@@ -9,7 +10,7 @@ import (
 )
 
 // ExecuteStep dispatches a step to the appropriate handler.
-func ExecuteStep(ctx *PipelineContext, stepName string, stepData map[string]any, bridgeClient *bridge.Client) ([]any, error) {
+func ExecuteStep(ctx *PipelineContext, stepName string, stepData map[string]any, bridgeClient *bridge.Client, strategy string) ([]any, error) {
 	switch stepName {
 	case "limit":
 		return ExecLimit(ctx, stepData)
@@ -26,9 +27,23 @@ func ExecuteStep(ctx *PipelineContext, stepName string, stepData map[string]any,
 	case "evaluate":
 		return ExecEvaluate(ctx, stepData)
 	case "fetch":
-		url, _ := stepData["url"].(string)
-		items, err := browser.ExecFetch(url, "public", bridgeClient)
-		return items, err
+		urlRaw, _ := stepData["url"].(string)
+		if urlRaw == "" {
+			return nil, fmt.Errorf("fetch requires url")
+		}
+		// Resolve ${{ }} templates in the fetch URL using the current item context
+		var url string
+		if strings.Contains(urlRaw, "${{") {
+			env := ctx.ExprEnv(0)
+			resolved, err := Resolve(urlRaw, env)
+			if err != nil {
+				return nil, fmt.Errorf("resolve fetch url: %w", err)
+			}
+			url = fmt.Sprintf("%v", resolved)
+		} else {
+			url = urlRaw
+		}
+		return browser.ExecFetch(url, strategy, bridgeClient)
 	case "navigate":
 		if err := browser.ExecNavigate(stepData, bridgeClient); err != nil {
 			return nil, err
@@ -74,14 +89,15 @@ func RunPipeline(ctx *PipelineContext, cfg *adapter.AdapterConfig, bridgeClient 
 			return nil, fmt.Errorf("step %d: %w", i, err)
 		}
 
-		result, err := ExecuteStep(ctx, stepName, stepData, bridgeClient)
+		result, err := ExecuteStep(ctx, stepName, stepData, bridgeClient, cfg.Strategy)
 		if err != nil {
 			return nil, fmt.Errorf("step %d (%s): %w", i, stepName, err)
 		}
 
 		// Update context items for data steps
 		if stepName == "map" || stepName == "filter" || stepName == "sort" ||
-			stepName == "limit" || stepName == "select" || stepName == "evaluate" {
+			stepName == "limit" || stepName == "select" || stepName == "evaluate" ||
+			stepName == "fetch" {
 			ctx.Items = result
 			items = result
 		}
@@ -105,7 +121,7 @@ func stepToMap(step adapter.Step) (string, map[string]any, error) {
 		case map[string]any:
 			return "click", v, nil
 		}
-		return "click", map[string]any{"selector": step.Click}, nil
+		return "", nil, fmt.Errorf("click requires a string selector or map params, got %T", step.Click)
 	}
 	if step.Type != nil {
 		return "type", step.Type, nil
@@ -114,12 +130,14 @@ func stepToMap(step adapter.Step) (string, map[string]any, error) {
 		switch v := step.Wait.(type) {
 		case string:
 			return "wait", map[string]any{"selector": v}, nil
+		case int:
+			return "wait", map[string]any{"timeout": v}, nil
 		case float64:
 			return "wait", map[string]any{"timeout": int(v)}, nil
 		case map[string]any:
 			return "wait", v, nil
 		}
-		return "wait", map[string]any{"selector": step.Wait}, nil
+		return "", nil, fmt.Errorf("wait requires a string selector, numeric timeout, or map params, got %T", step.Wait)
 	}
 	if step.Intercept != "" {
 		return "intercept", map[string]any{"urlPattern": step.Intercept}, nil
@@ -128,9 +146,10 @@ func stepToMap(step adapter.Step) (string, map[string]any, error) {
 		switch v := step.Download.(type) {
 		case string:
 			return "download", map[string]any{"url": v}, nil
-		default:
-			return "download", map[string]any{"url": step.Download}, nil
+		case map[string]any:
+			return "download", v, nil
 		}
+		return "", nil, fmt.Errorf("download requires a string url or map params, got %T", step.Download)
 	}
 	if step.Map != nil {
 		return "map", step.Map, nil

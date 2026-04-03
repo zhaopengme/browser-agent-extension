@@ -17,6 +17,8 @@ func ExecClick(stepData map[string]any, client *bridge.Client) error {
 	}
 	if index, ok := stepData["index"].(int); ok {
 		params["index"] = index
+	} else if index, ok := stepData["index"].(float64); ok {
+		params["index"] = int(index)
 	}
 	if len(params) == 0 {
 		return fmt.Errorf("click requires selector or index")

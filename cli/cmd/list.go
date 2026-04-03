@@ -15,7 +15,10 @@ var listCmd = &cobra.Command{
 	Short: "List available adapters",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		files, err := adapter.Discover()
-		if err != nil || len(files) == 0 {
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error discovering adapters: %v\n", err)
+		}
+		if len(files) == 0 {
 			fmt.Println("No adapters found. Place *.yaml files in adapters/ or ~/.bae/adapters/")
 			return nil
 		}
@@ -25,7 +28,7 @@ var listCmd = &cobra.Command{
 		for _, f := range files {
 			cfg, err := adapter.Parse(f)
 			if err != nil {
-				fmt.Fprintf(w, "%s\t(error)\t\t%s\n", f, err)
+				fmt.Fprintf(w, "%s\t-\t-\t%v\n", f, err)
 				continue
 			}
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", f, cfg.Site, cfg.Name, cfg.Description)
