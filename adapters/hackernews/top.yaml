@@ -1,0 +1,27 @@
+site: hackernews
+name: top
+description: Hacker News top stories
+strategy: public
+browser: false
+
+args:
+  limit:
+    type: int
+    default: 10
+    description: Number of stories
+
+pipeline:
+  - fetch: https://hacker-news.firebaseio.com/v0/topstories.json
+  - limit: ${{ Math.min(args.limit + 5, 50) }}
+  - map:
+      id: ${{ item }}
+  - fetch: https://hacker-news.firebaseio.com/v0/item/${{ item.id }}.json
+  - filter: item.title && !item.deleted
+  - map:
+      rank: ${{ index + 1 }}
+      title: ${{ item.title }}
+      score: ${{ item.score }}
+      author: ${{ item.by }}
+  - limit: ${{ args.limit }}
+
+columns: [rank, title, score, author]
