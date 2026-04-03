@@ -39,7 +39,7 @@ func ExecuteStep(ctx *PipelineContext, stepName string, stepData map[string]any,
 			if err != nil {
 				return nil, fmt.Errorf("resolve fetch url: %w", err)
 			}
-			url = fmt.Sprintf("%v", resolved)
+			url = formatValue(resolved)
 		} else {
 			url = urlRaw
 		}
@@ -215,4 +215,21 @@ func stepToMap(step adapter.Step) (string, map[string]any, error) {
 	}
 
 	return "", nil, fmt.Errorf("step has no action")
+}
+
+// formatValue formats a value for use in URLs, avoiding scientific notation for large numbers.
+func formatValue(v any) string {
+	switch val := v.(type) {
+	case float64:
+		if val == float64(int64(val)) {
+			return fmt.Sprintf("%d", int64(val))
+		}
+		return fmt.Sprintf("%g", val)
+	case int:
+		return fmt.Sprintf("%d", val)
+	case int64:
+		return fmt.Sprintf("%d", val)
+	default:
+		return fmt.Sprintf("%v", val)
+	}
 }

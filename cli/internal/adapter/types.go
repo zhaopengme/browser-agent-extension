@@ -16,6 +16,7 @@ type AdapterConfig struct {
 type Arg struct {
 	Type        string `yaml:"type"`        // int | str | bool
 	Default     any    `yaml:"default"`
+	Positional  bool   `yaml:"positional"`  // if true, accepts positional arg
 	Description string `yaml:"description"`
 }
 

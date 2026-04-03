@@ -16,7 +16,7 @@ pipeline:
   - map:
       id: ${{ item }}
   - fetch: https://hacker-news.firebaseio.com/v0/item/${{ item.id }}.json
-  - filter: item.title && !item.deleted
+  - filter: truthy(item.title) && !truthy(item.deleted)
   - map:
       rank: ${{ index + 1 }}
       title: ${{ item.title }}

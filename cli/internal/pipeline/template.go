@@ -64,11 +64,29 @@ var templateRe = regexp.MustCompile(`\$\{\{(.+?)\}\}`)
 // exprEnv builds the expr environment map.
 func exprEnv(env ExprEnv) map[string]any {
 	return map[string]any{
-		"item":  env.Item,
-		"index": env.Index,
-		"args":  env.Args,
-		"vars":  env.Vars,
-		"Math":  MathFuncs,
+		"item":    env.Item,
+		"index":   env.Index,
+		"args":    env.Args,
+		"vars":    env.Vars,
+		"Math":    MathFuncs,
+		"truthy":  isTruthyFn,
+	}
+}
+
+// isTruthyFn is a truthy helper callable from expr expressions.
+func isTruthyFn(v any) bool {
+	if v == nil {
+		return false
+	}
+	switch val := v.(type) {
+	case bool:
+		return val
+	case string:
+		return val != ""
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		return v != 0
+	default:
+		return true
 	}
 }
 
@@ -136,7 +154,7 @@ func Resolve(input string, env ExprEnv) (any, error) {
 			lastErr = err
 			return match
 		}
-		return fmt.Sprintf("%v", val)
+		return formatForString(val)
 	})
 
 	if lastErr != nil {
@@ -144,6 +162,23 @@ func Resolve(input string, env ExprEnv) (any, error) {
 	}
 
 	return result, nil
+}
+
+// formatForString formats a value for string interpolation, avoiding scientific notation.
+func formatForString(v any) string {
+	switch val := v.(type) {
+	case float64:
+		if val == float64(int64(val)) {
+			return fmt.Sprintf("%d", int64(val))
+		}
+		return fmt.Sprintf("%g", val)
+	case int:
+		return fmt.Sprintf("%d", val)
+	case int64:
+		return fmt.Sprintf("%d", val)
+	default:
+		return fmt.Sprintf("%v", val)
+	}
 }
 
 func evalExpr(expression string, env ExprEnv) (any, error) {
